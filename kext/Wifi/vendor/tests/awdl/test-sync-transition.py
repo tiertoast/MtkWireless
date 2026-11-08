@@ -18,9 +18,10 @@ code=r'''
 #include <vector>
 #include <cstring>
 #include <AWDL/AwdlTimeline.hpp>
+#include <AWDL/AwdlSyncRecovery.hpp>
 #define XYLog(...) ((void)0)
 using IOReturn=unsigned;using AbsoluteTime=uint64_t;using IOThread=void*;
-constexpr unsigned kIOReturnSuccess=0,kIOReturnNotReady=1,kIOReturnBusy=2,kIOReturnTimeout=3,kMillisecondScale=1,THREAD_UNINT=0;
+constexpr unsigned kIOReturnSuccess=0,kIOReturnNotReady=1,kIOReturnBusy=2,kIOReturnTimeout=3,kIOReturnAborted=4,kMillisecondScale=1,THREAD_UNINT=0;
 constexpr unsigned THREAD_AWAKENED=0,THREAD_TIMED_OUT=1;
 std::atomic<uint64_t> offset{0};
 uint64_t awdlNow(){return offset+std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();}
@@ -45,17 +46,31 @@ Gate*_fCommandGate=&gate;
 using mbuf_t=int*;void mbuf_freem(mbuf_t m){delete m;}
 struct Timer{bool active=false;void setTimeoutMS(unsigned){active=true;}void cancelTimeout(){active=false;}};
 struct Hal{
- bool on=false;unsigned calls=0,status=0,inFlight=0;std::vector<bool> history;
+ bool on=false,stopped=false,running=true;uint32_t epoch=7;unsigned calls=0,status=0,inFlight=0;std::vector<bool> history;
  mtkawdl::Reservation grant{};
  bool awdlGrantSnapshot(mtkawdl::Reservation &out){out=grant;return on;}
  void awdlInfraWakeIfIdle(){}
  std::function<void()> wait;
- IOReturn awdlEnable(const uint8_t*,bool value){assert(!inFlight++);++calls;history.push_back(value);if(wait)wait();--inFlight;if(!status)on=value;return status;}
+ mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t expected){
+  using R=mtkawdl::SyncRecoveryReadiness;
+  return epoch!=expected ? R::Stale : stopped||!running ? R::Waiting : R::Ready;
+ }
+ IOReturn awdlEnable(const uint8_t*,bool value,mtkawdl::SyncStop *blocked,const uint32_t *expected){
+  if(expected&&awdlSyncRecoveryReadiness(*expected)!=mtkawdl::SyncRecoveryReadiness::Ready)return kIOReturnAborted;
+  if(stopped){if(blocked)*blocked={epoch,true};return value?kIOReturnNotReady:kIOReturnSuccess;}
+  assert(!inFlight++);++calls;history.push_back(value);if(wait)wait();--inFlight;
+  if(expected&&awdlSyncRecoveryReadiness(*expected)!=mtkawdl::SyncRecoveryReadiness::Ready)return kIOReturnAborted;
+  if(!status)on=value;return status;
+ }
 };
 struct AirportMtkAwdlInterface:OSObject{
  Hal radio;Hal*hal=&radio;Timer clock;Timer*timer=&clock;
  struct{void reset(){}}dataPeers;bool trafficActive=false,trafficPeerInstalled=false;uint8_t installedTrafficPeer[6]{};uint8_t discoveryTxPeers[3][6]{};struct AddbaDecline{uint8_t request[24+9];bool valid;}addbaPending[4]{};uint64_t addbaRequests=0,addbaQueued=0,addbaSubmitted=0,addbaFailed=0,addbaExpired=0,addbaDeferred=0,addbaDropped=0,delbaReceived=0;bool stopping=false,enabled=false;IOThread syncOwner=nullptr;
  uint64_t syncRequests=0,syncWaits=0,syncFailures=0;
+ mtkawdl::SyncRecovery syncRecovery;
+ uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
+ uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);void reconcileSyncInGate();
+ IOReturn applySyncInGate(bool,uint64_t,const uint32_t *expectedEpoch=nullptr);
  struct{uint8_t mac[6]={2,1,2,3,4,5};void holdClock(uint64_t){}void discardControls(){}}state;
  uint64_t nextAction=0,requestDeadline=0;unsigned requestedChannel=0,grantedChannel=0,queueCount=0,queueHead=0;
  static constexpr unsigned kDataQueueSize=256;mbuf_t queue[kDataQueueSize]{};std::atomic<unsigned> refs{1};
@@ -68,7 +83,7 @@ struct AirportMtkAwdlInterface:OSObject{
  void finishAvailabilityWindowForDisable();
  static IOReturn syncGated(OSObject*,void*,void*,void*,void*);
 };
-'''+fn('IOReturn AirportMtkAwdlInterface::setSync(bool')+fn('IOReturn AirportMtkAwdlInterface::syncGated(')+fn('void AirportMtkAwdlInterface::finishAvailabilityWindowForDisable(')+fn('IOReturn AirportMtkAwdlInterface::setSyncInGate(')+r'''
+'''+fn('IOReturn AirportMtkAwdlInterface::setSync(bool')+fn('IOReturn AirportMtkAwdlInterface::syncGated(')+fn('void AirportMtkAwdlInterface::finishAvailabilityWindowForDisable(')+fn('IOReturn AirportMtkAwdlInterface::setSyncInGate(')+fn('uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery(')+fn('void AirportMtkAwdlInterface::publishSyncRecovery(')+fn('void AirportMtkAwdlInterface::reconcileSyncInGate(')+fn('IOReturn AirportMtkAwdlInterface::applySyncInGate(')+r'''
 int main(){
  AirportMtkAwdlInterface d;
  // The firmware waiter releases the gate. A second native request enters
@@ -149,6 +164,61 @@ int main(){
  offset+=3000001; // deadline is relative, advance it while waiting
  std::thread advance([&]{std::this_thread::sleep_for(std::chrono::milliseconds(20));offset+=3000001;gate.cv.notify_all();});
  assert(d.setSync(true)==kIOReturnTimeout);advance.join();assert(d.syncOwner==&foreign&&d.refs==1);d.syncOwner=nullptr;
+ auto tick=[&]{
+  gate.runAction([](OSObject*,void *self,void*,void*,void*){
+   static_cast<AirportMtkAwdlInterface*>(self)->reconcileSyncInGate();return 0u;},&d);
+ };
+ auto block=[&]{
+  assert(!d.setSync(false));
+  d.radio.stopped=true;d.radio.running=false;
+  assert(d.setSync(true)==kIOReturnNotReady && !d.enabled && d.syncRecovery.pending());
+ };
+ auto resume=[&]{d.radio.stopped=false;d.radio.running=true;};
+ block();
+ unsigned before=d.radio.calls;
+ tick();assert(d.radio.calls==before && d.syncRecovery.pending());
+ d.radio.stopped=false;tick();assert(d.radio.calls==before && d.syncRecovery.pending());
+ resume();tick();tick();
+ assert(d.enabled && d.radio.on && d.syncRecoveryCompleted==1 && d.radio.calls==before+1);
+ block();
+ assert(!d.setSync(false));resume();tick();
+ assert(!d.enabled && !d.radio.on && d.syncRecoveryStale==1);
+ block();
+ ++d.radio.epoch;resume();tick();
+ assert(!d.enabled && d.syncRecoveryStale==2);
+ block();
+ offset+=mtkawdl::SyncRecovery::waitUS;resume();tick();
+ assert(!d.enabled && d.syncRecoveryExpired==1);
+
+ block();resume();
+ // A retry may sleep in firmware. An OFF that enters during the sleep
+ // invalidates it, while the original synchronous OFF waits its turn.
+ std::mutex mutex;std::condition_variable cv;bool inside=false,finish=false;
+ unsigned waits=d.syncWaits;
+ d.radio.wait=[&]{
+  if(!d.radio.history.back())return;
+  gate.mutex.unlock();
+  {std::unique_lock<std::mutex> l(mutex);inside=true;cv.notify_all();cv.wait(l,[&]{return finish;});}
+  gate.mutex.lock();
+ };
+ std::thread retry(tick);
+ {std::unique_lock<std::mutex> l(mutex);cv.wait(l,[&]{return inside;});}
+ unsigned offResult=99;
+ std::thread off([&]{offResult=d.setSync(false);});
+ bool waited=false;
+ for(unsigned i=0;i<200&&!waited;++i){
+  {std::lock_guard<std::recursive_mutex> l(gate.mutex);waited=d.syncWaits>waits;}
+  if(!waited)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+ }
+ {std::lock_guard<std::mutex> l(mutex);finish=true;}cv.notify_all();
+ retry.join();off.join();d.radio.wait=nullptr;
+ assert(waited && offResult==0 && !d.enabled && !d.radio.on && !d.syncOwner);
+ assert(d.syncRecoveryCompleted==1 && d.syncRecoveryStale==3);
+ block();resume();
+ d.radio.wait=[&]{++d.radio.epoch; d.radio.stopped=true;};
+ tick();d.radio.wait=nullptr;
+ assert(!d.enabled && !d.radio.on && !d.syncRecovery.pending() && d.syncRecoveryStale==4);
+ puts("PASS recovery: blocked ON, stopped/non-running polling, one same-epoch retry, OFF cancellation, later epoch, deadline and in-flight OFF.");
  puts("PASS production sync: concurrent enable/enable and enable/disable across firmware gate sleep, real failure propagation, recursion rejection, teardown cancellation, bounded owner wait and retain balance.");
 }
 '''

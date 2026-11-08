@@ -34,6 +34,9 @@ functions='\n'.join(fn(source,s) for s in [
  'IOReturn AirportMtkAwdlInterface::setSync(bool',
  'IOReturn AirportMtkAwdlInterface::syncGated(',
  'IOReturn AirportMtkAwdlInterface::setSyncInGate(',
+ 'IOReturn AirportMtkAwdlInterface::applySyncInGate(',
+ 'void AirportMtkAwdlInterface::publishSyncRecovery(',
+ 'uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery(',
  'IOReturn AirportMtkAwdlInterface::setMacAddress(',
  'ether_addr AirportMtkAwdlInterface::getSelfMacAddr('])
 functions+='\n'+fn(controller,'bool AirportMtkWlan::createAwdlInterface(ether_addr *address)')
@@ -51,6 +54,7 @@ stubs=r'''
 #include <cerrno>
 #include <map>
 #include <string>
+#include <AWDL/AwdlSyncRecovery.hpp>
 #define XYLog(...) ((void)0)
 #define IOLog(...) ((void)0)
 #define APPLE80211_VERSION 1
@@ -72,7 +76,7 @@ constexpr unsigned kIOReturnTimeout=10,kMillisecondScale=1,THREAD_UNINT=0;
 IOThread IOThreadSelf(){static int identity;return &identity;}
 void clock_interval_to_deadline(unsigned,unsigned,AbsoluteTime*p){*p=10;}
 constexpr unsigned kIOReturnSuccess=0,kIOReturnNotReady=1,kIOReturnError=2,kIOReturnNoMemory=3,
- kIOReturnUnsupported=4,kIOReturnBadArgument=5,kIOReturnBusy=6,kIOReturnOutputSuccess=0;
+ kIOReturnUnsupported=4,kIOReturnBadArgument=5,kIOReturnBusy=6,kIOReturnAborted=7,kIOReturnOutputSuccess=0;
 int live=0,factory=0,failFactory=0,add=0,failAdd=0;
 bool resourceAvailable=true,deferralFail=false,superFail=false,infoFail=false,registerFail=false,macFail=false,macMismatch=false;
 int nativeStarts=0,publications=0,completionsDone=0,outstanding=0;
@@ -100,7 +104,8 @@ struct IC {uint8_t ic_myaddr[6]={2,1,2,3,4,5};int ic_state=IEEE80211_S_RUN;};
 struct MtkMwx:IOService {IC ic; bool channels=true,ready=true; std::function<void()> wait;
  bool awdlInterfaceReady(){return ready;}
  IC *get80211Controller(){return &ic;}bool awdlChannelAllowed(unsigned){return channels;} uint8_t infraChannel=0;uint8_t awdlInfraChannel(){return infraChannel;}uint8_t awdlOnlyChannel(){return infraChannel;}void awdlInfraSleep(unsigned){}void awdlInfraWakeIfIdle(){}bool awdlChannelReachable(unsigned c){return awdlChannelAllowed(c)&&(!infraChannel||c==infraChannel);}
- IOReturn awdlEnable(const uint8_t*,bool){if(wait)wait();return 0;}};
+ mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t){return mtkawdl::SyncRecoveryReadiness::Ready;}
+ IOReturn awdlEnable(const uint8_t*,bool,mtkawdl::SyncStop * =nullptr,const uint32_t * =nullptr){if(wait)wait();return 0;}};
 struct IOSkywalkPacketQueue;
 struct IOSkywalkPacket:OSObject {
  unsigned length=64,offset=0,buffers=1; bool prepared=false,tx=false;
@@ -196,6 +201,10 @@ struct AirportMtkAwdlInterface:NativeProtocol {
  uint8_t nativePeerSamples[16]{};
  struct {uint8_t master[6]={};} syncState;
  void *bsd=nullptr;IOThread syncOwner=nullptr;uint64_t syncRequests=0,syncWaits=0,syncFailures=0;
+ mtkawdl::SyncRecovery syncRecovery;
+ uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
+ uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);
+ IOReturn applySyncInGate(bool,uint64_t,const uint32_t * =nullptr);
  IOReturn setMacAddress(ether_addr&) override;ether_addr getSelfMacAddr() override;
  unsigned queueHead=0,requestedChannel=0,grantedChannel=0;uint64_t nextAction=0,requestDeadline=0;static constexpr unsigned kDataQueueSize=256;mbuf_t queue[kDataQueueSize]={};
  unsigned refs=1;void retain(){++refs;} void release() override {if(!--refs)delete this;} IOReturn setSync(bool);IOReturn setSyncInGate(bool);static IOReturn syncGated(OSObject*,void*,void*,void*,void*);
@@ -382,5 +391,5 @@ int main(){
 with tempfile.TemporaryDirectory(prefix='mtk-native-backend-') as temp:
     cpp=Path(temp)/'test.cpp';binary=Path(temp)/'test'
     cpp.write_text(stubs+functions+tests)
-    subprocess.run(['clang++','-std=c++14','-Wall','-Wextra','-fsanitize=address,undefined',str(cpp),'-o',str(binary)],check=True)
+    subprocess.run(['clang++','-std=c++14','-Wall','-Wextra','-fsanitize=address,undefined','-I'+str(root/'include'),str(cpp),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=15)

@@ -41,7 +41,9 @@ struct IOTimerEventSource{
 };
 struct WorkLoop{unsigned addEventSource(IOTimerEventSource*){if(addFail)return 3;++added;return 0;}void removeEventSource(IOTimerEventSource*){++removed;}};
 struct AirportMtkWlan:OSObject{WorkLoop loop;const char*stage=nullptr;WorkLoop*getWorkLoop(){return &loop;}void recordAwdlCreation(const char*s,unsigned){stage=s;}};
+using IOLock=int; IOLock *IOLockAlloc(){return new IOLock;}void IOLockFree(IOLock *p){delete p;}
 struct MtkMwx{bool awdlChannelAllowed(unsigned){return social;} uint8_t infraChannel=0;uint8_t awdlInfraChannel(){return infraChannel;}uint8_t awdlOnlyChannel(){return infraChannel;}void awdlInfraSleep(unsigned){}void awdlInfraWakeIfIdle(){}bool awdlChannelReachable(unsigned c){return awdlChannelAllowed(c)&&(!infraChannel||c==infraChannel);}void awdlSetReceiver(void*o,bool(*)(void*,const uint8_t*,size_t,uint8_t,int8_t)){if(o)++receiverSet;}
+ void awdlSetTxCompletion(void*,void(*)(void*,const uint8_t*,uint8_t,uint16_t,uint16_t,uint8_t,uint32_t)){}
  void awdlEnable(void*,bool){++transportStopped;}};
 struct apple80211_channel{uint32_t version,channel,flags;};
 struct AirportMtkAwdlInterface:Native{
@@ -50,7 +52,10 @@ struct AirportMtkAwdlInterface:Native{
  unsigned queueHead=0,queueCount=0,templateLength=0,requestedChannel=0,grantedChannel=0;uint64_t nextAction=0,requestDeadline=0;
  static constexpr unsigned kDataQueueSize=256;void*queue[kDataQueueSize]{};uint8_t trafficPeer[6]{},installedTrafficPeer[6]{};uint8_t discoveryTxPeers[3][6]{};struct AddbaDecline{uint8_t request[24+9];bool valid;}addbaPending[4]{};uint64_t addbaRequests=0,addbaQueued=0,addbaSubmitted=0,addbaFailed=0,addbaExpired=0,addbaDeferred=0,addbaDropped=0,delbaReceived=0;
  mtkawdl::DataPeers dataPeers;mtkawdl::State state;mtkawdl::Timeline awTimeline;
- unsigned windowEnds=0;
+ IOLock *txStatusLock=nullptr;unsigned txStatusCount=0,txStatusDropped=0;
+ unsigned windowEnds=0,invalidations=0;
+ void supersedeSyncRecovery(){++invalidations;}
+ static void txStatus(void*,const uint8_t*,uint8_t,uint16_t,uint16_t,uint8_t,uint32_t){}
  void notifyAvailabilityWindowEnd(uint64_t){++windowEnds;awTimeline.close();}
  struct {unsigned version,availability_window_length,availability_window_period,extension_length,synchronization_frame_period,non_election_master;}syncParams{};
  struct{unsigned version,unk1,unk2,unk3,unk4;}extension{};
@@ -79,7 +84,7 @@ int main(){
  bool ok=obj.initWithController(&owner,&mac,&radio);assert(ok==(failure==5));
  if(ok)obj.awTimeline.open=true;
  obj.shutdown();obj.free();
- assert(obj.windowEnds==(ok?1U:0U));
+ assert(obj.windowEnds==(ok?1U:0U)&&obj.invalidations==1);
  assert(lowerFreed==1&&baseFreed==(failure>=2?1U:0U));
  assert(receiverSet==(ok?1U:0U)&&transportStopped==(ok?1U:0U));
  assert(added==removed);
