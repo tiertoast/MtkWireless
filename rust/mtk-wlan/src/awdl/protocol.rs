@@ -147,6 +147,29 @@ pub fn parse_sequence(p: &[u8]) -> Option<Sequence> {
     Some(s)
 }
 
+/// TLV4 contains a sequence, not necessarily only a sequence plus zero padding.
+/// Wireshark's awdl_tag_sync_params consumes 33 fixed bytes, then exactly
+/// 6 + count*width bytes. OWL tx.c adds two zero bytes after that sequence.
+/// The MT7922 captures from November 6 and 8, 2026 have the same boundaries
+/// but tails 00 24, 81 24, 00 dc and 20 d4. Their semantics are unknown.
+/// Admit these only on the exact 16-entry legacy/step-3 shape in TLV4.
+fn parse_sync_sequence(p: &[u8]) -> Option<Sequence> {
+    if let Some(sequence) = parse_sequence(p) {
+        return Some(sequence);
+    }
+    let mut reader = Reader::new(p);
+    if reader.array::<6>().ok()? != [15, 1, 0, 3, 0xff, 0xff] {
+        return None;
+    }
+    reader.skip(16 * 2).ok()?;
+    let used = reader.position();
+    let tail = reader.array::<2>().ok()?;
+    if !reader.is_empty() || !matches!(tail, [0, 0x24] | [0x81, 0x24] | [0, 0xdc] | [0x20, 0xd4]) {
+        return None;
+    }
+    parse_sequence(p.get(..used)?)
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Advertisement {
@@ -242,7 +265,7 @@ pub fn parse_action(f: &[u8]) -> Option<Advertisement> {
                 {
                     return None;
                 }
-                a.sequence = parse_sequence(&p[33..])?;
+                a.sequence = parse_sync_sequence(&p[33..])?;
                 if a.sequence.step as u32 + 1 != a.presence as u32 {
                     return None;
                 }
@@ -1539,7 +1562,7 @@ pub fn refresh_action(s: &mut State, f: &mut [u8], now: u64) -> usize {
         let body = &f[at_..at_ + len];
         match kind {
             4 => {
-                if has_sync || len < 39 || parse_sequence(&body[33..]).is_none() || len < 39 + count
+                if has_sync || len < 39 || parse_sync_sequence(&body[33..]).is_none() || len < 39 + count
                 {
                     return 0;
                 }
