@@ -23,7 +23,7 @@
 
 struct mwx_softc;
 struct pci_attach_args;
-namespace mtkawdl { struct Reservation; }
+namespace mtkawdl { struct Reservation; struct SyncStop; enum class SyncRecoveryReadiness; }
 
 class MtkMwx : public MtkHalService, MtkDriverInfo, MtkDriverController {
     OSDeclareDefaultStructors(MtkMwx)
@@ -67,7 +67,9 @@ public:
     typedef void (*AwdlTxCompletion)(void *, const uint8_t *, uint8_t,
         uint16_t, uint16_t, uint8_t, uint32_t);
     void awdlSetTxCompletion(void *context, AwdlTxCompletion completion);
-    IOReturn awdlEnable(const uint8_t *address, bool enable);
+    IOReturn awdlEnable(const uint8_t *address, bool enable, mtkawdl::SyncStop *blocked=nullptr,
+                        const uint32_t *expectedEpoch=nullptr);
+    mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t epoch);
     IOReturn awdlReserve(uint8_t channel, uint32_t durationMs);
     IOReturn awdlPrepareChannel(uint8_t channel);
     bool awdlCanTransmit(uint8_t channel);

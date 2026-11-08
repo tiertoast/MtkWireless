@@ -493,6 +493,7 @@ void AirportMtkAwdlInterface::shutdownInGate()
 {
     if(stopping) return;
     stopping=true;
+    supersedeSyncRecovery();
     if(awTimeline.open) notifyAvailabilityWindowEnd(awdlNow());
     awTimeline.reset();
     setDataPathEnabled(false);
@@ -532,6 +533,7 @@ IOReturn AirportMtkAwdlInterface::setMacAddress(ether_addr &mac)
     if(stopping) return kIOReturnNotReady;
     if(enabled || syncOwner) return kIOReturnBusy;
     if(!mtkawdl::unicast((uint8_t *)&mac)) return kIOReturnBadArgument;
+    supersedeSyncRecovery();
     auto sequence=state.ownSequence;
     state.init((uint8_t *)&mac,awdlNow());
     state.nativeElectionManaged=true;
@@ -613,6 +615,7 @@ IOReturn AirportMtkAwdlInterface::setSyncInGate(bool value)
 {
     if(stopping || !hal || !timer || !_fCommandGate) return kIOReturnNotReady;
     ++syncRequests;
+    uint64_t request=supersedeSyncRecovery();
     IOThread caller=IOThreadSelf();
     uint64_t deadline=awdlNow()+3000000;
     while(syncOwner) {
@@ -625,7 +628,59 @@ IOReturn AirportMtkAwdlInterface::setSyncInGate(bool value)
         _fCommandGate->commandSleep(&syncOwner,wake,THREAD_UNINT);
         if(stopping) return kIOReturnNotReady;
     }
-    syncOwner=caller;
+    return applySyncInGate(value,request);
+}
+
+void AirportMtkAwdlInterface::publishSyncRecovery(const char *stage)
+{
+    setProperty("MTKAWDLSyncRecoveryStage",stage);
+    setProperty("MTKAWDLSyncRecoveryGeneration",syncRecovery.generation,64);
+    setProperty("MTKAWDLSyncRecoveryEpoch",static_cast<uint64_t>(syncRecovery.epoch),32);
+    setProperty("MTKAWDLSyncRecoveryArmed",syncRecoveryArmed,64);
+    setProperty("MTKAWDLSyncRecoveryRetries",syncRecoveryRetries,64);
+    setProperty("MTKAWDLSyncRecoveryStale",syncRecoveryStale,64);
+    setProperty("MTKAWDLSyncRecoveryExpired",syncRecoveryExpired,64);
+    setProperty("MTKAWDLSyncRecoveryCompleted",syncRecoveryCompleted,64);
+}
+
+uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery()
+{
+    bool pending=syncRecovery.pending();
+    uint64_t request=syncRecovery.supersede();
+    if(pending) { ++syncRecoveryStale; publishSyncRecovery("superseded"); }
+    return request;
+}
+
+void AirportMtkAwdlInterface::reconcileSyncInGate()
+{
+    // The timer is on the controller workloop. It shares the native gate
+    // and must never wait for a sync transition that is sleeping in it.
+    if(stopping || !syncRecovery.pending()) return;
+    using Action=mtkawdl::SyncRecovery::Action;
+    auto readiness=hal->awdlSyncRecoveryReadiness(syncRecovery.epoch);
+    if(syncOwner && readiness==mtkawdl::SyncRecoveryReadiness::Ready)
+        readiness=mtkawdl::SyncRecoveryReadiness::Waiting;
+    switch(syncRecovery.poll(awdlNow(),readiness)) {
+    case Action::Wait:
+        timer->setTimeoutMS(100); return;
+    case Action::Stale:
+        ++syncRecoveryStale; publishSyncRecovery("stale-epoch"); return;
+    case Action::Expired:
+        ++syncRecoveryExpired; publishSyncRecovery("expired"); return;
+    case Action::Retry: {
+        uint32_t epoch=syncRecovery.epoch;
+        ++syncRecoveryRetries; publishSyncRecovery("retrying");
+        applySyncInGate(true,syncRecovery.generation,&epoch);
+        return;
+    }
+    case Action::Idle:
+        return;
+    }
+}
+
+IOReturn AirportMtkAwdlInterface::applySyncInGate(bool value,uint64_t request,const uint32_t *expectedEpoch)
+{
+    syncOwner=IOThreadSelf();
     setProperty("MTKAWDLSyncTransition",value ? "enabling" : "disabling");
     if(!value) {
         enabled=false;
@@ -633,7 +688,20 @@ IOReturn AirportMtkAwdlInterface::setSyncInGate(bool value)
         state.discardControls(); state.holdClock(0);
         awTimeline.reset(); drainCompletions();
     }
-    IOReturn status=stopping ? kIOReturnNotReady : hal->awdlEnable(state.mac,value);
+    mtkawdl::SyncStop blocked{};
+    IOReturn status=stopping ? kIOReturnNotReady :
+        hal->awdlEnable(state.mac,value,value && !expectedEpoch ? &blocked : nullptr,expectedEpoch);
+    bool superseded=expectedEpoch && (stopping || !syncRecovery.current(request));
+    bool staleEpoch=expectedEpoch && !stopping &&
+        hal->awdlSyncRecoveryReadiness(*expectedEpoch)==mtkawdl::SyncRecoveryReadiness::Stale;
+    if(superseded) {
+        // OFF or a new native request can enter during an MCU wait. If
+        // this retry committed, unwind it in its own epoch before letting
+        // the next request proceed. HAL stop owns cleanup in a new epoch.
+        if(status==kIOReturnSuccess && !stopping) hal->awdlEnable(nullptr,false,nullptr,expectedEpoch);
+        status=kIOReturnAborted;
+    }
+    if(staleEpoch) status=kIOReturnAborted;
     if(stopping) status=kIOReturnNotReady;
     if(status==kIOReturnSuccess) enabled=value;
     if(!enabled) {
@@ -657,6 +725,19 @@ IOReturn AirportMtkAwdlInterface::setSyncInGate(bool value)
     setProperty("MTKAWDLSyncWaits",syncWaits,64);
     setProperty("MTKAWDLSyncFailures",syncFailures,64);
     XYLog("AWDL sync request=%d enabled=%d status=0x%x waits=%llu\n",value,enabled,status,syncWaits);
+    if(expectedEpoch) {
+        if(superseded || staleEpoch) {
+            ++syncRecoveryStale; publishSyncRecovery(staleEpoch ? "stale-epoch" : "superseded-in-flight");
+        } else if(status==kIOReturnSuccess) { ++syncRecoveryCompleted; publishSyncRecovery("completed"); }
+        else publishSyncRecovery("retry-failed");
+    } else if(!stopping && blocked.blocked && status==kIOReturnNotReady) {
+        if(syncRecovery.arm(request,blocked.epoch,awdlNow())) {
+            ++syncRecoveryArmed; publishSyncRecovery("waiting-hardware");
+            timer->setTimeoutMS(100);
+        } else {
+            ++syncRecoveryStale; publishSyncRecovery("superseded-before-arm");
+        }
+    }
     syncOwner=NULL;
     _fCommandGate->commandWakeup(&syncOwner,false);
     return status;
@@ -696,7 +777,10 @@ void AirportMtkAwdlInterface::tick(OSObject *o,IOTimerEventSource*)
 }
 void AirportMtkAwdlInterface::service()
 {
-    retain(); drainTxStatus(); drainCompletions(); serviceInGate(); release();
+    retain();
+    drainTxStatus(); drainCompletions(); serviceInGate();
+    reconcileSyncInGate();
+    release();
 }
 
 void AirportMtkAwdlInterface::txStatus(void *context, const uint8_t *address,

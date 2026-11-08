@@ -31,6 +31,7 @@
 #include "MtkMwx.hpp"
 #include "mtk_wlan.h"
 #include <AWDL/AwdlProtocol.hpp>
+#include <AWDL/AwdlSyncRecovery.hpp>
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -9252,13 +9253,31 @@ static uint64_t mwx_awdl_now()
 
 // Only one operation may own the secondary firmware context. Never hold the
 // lock across MCU waits: replies arrive on the workloop that owns the gate.
+// Called with sc_awdl_lock held. A new stop or detach invalidates the ticket,
+// while reset/MAC reconfiguration must finish before firmware setup can resume.
+static mtkawdl::SyncRecoveryReadiness mwx_awdl_sync_readiness(mwx_softc *sc,uint32_t epoch)
+{
+    using Readiness=mtkawdl::SyncRecoveryReadiness;
+    if(sc->sc_detaching || sc->sc_awdl_epoch!=epoch) return Readiness::Stale;
+    if(sc->sc_awdl_stopping || sc->sc_awdl_busy || sc->sc_resetting ||
+       sc->sc_ic.ic_wcl_mac_reconfig || !(sc->sc_ic.ic_if.if_flags & IFF_RUNNING))
+        return Readiness::Waiting;
+    return Readiness::Ready;
+}
+
 class MwxAwdlCall {
     mwx_softc *sc;
 public:
-    MwxAwdlCall(mwx_softc *s) : sc(NULL) {
+    MwxAwdlCall(mwx_softc *s,mtkawdl::SyncStop *blocked=nullptr,
+                const uint32_t *expectedEpoch=nullptr) : sc(NULL) {
         if(!s || !s->sc_awdl_lock) return;
         IOLockLock(s->sc_awdl_lock);
-        if(!s->sc_detaching && !s->sc_awdl_stopping) { ++s->sc_awdl_calls; sc=s; }
+        if(blocked && !s->sc_detaching && s->sc_awdl_stopping)
+            *blocked={s->sc_awdl_epoch,true};
+        if(!s->sc_detaching && !s->sc_awdl_stopping &&
+           (!expectedEpoch || mwx_awdl_sync_readiness(s,*expectedEpoch)==mtkawdl::SyncRecoveryReadiness::Ready)) {
+            ++s->sc_awdl_calls; sc=s;
+        }
         IOLockUnlock(s->sc_awdl_lock);
     }
     ~MwxAwdlCall() {
@@ -9697,12 +9716,23 @@ static int mwx_awdl_remove_context(mwx_softc *sc,uint32_t epoch)
     return rv;
 }
 
-IOReturn MtkMwx::awdlEnable(const uint8_t *address, bool enable)
+mtkawdl::SyncRecoveryReadiness MtkMwx::awdlSyncRecoveryReadiness(uint32_t epoch)
+{
+    if(!com || !com->sc_awdl_lock) return mtkawdl::SyncRecoveryReadiness::Stale;
+    IOLockLock(com->sc_awdl_lock);
+    auto ready=mwx_awdl_sync_readiness(com,epoch);
+    IOLockUnlock(com->sc_awdl_lock);
+    return ready;
+}
+
+IOReturn MtkMwx::awdlEnable(const uint8_t *address, bool enable,mtkawdl::SyncStop *blocked,
+                          const uint32_t *expectedEpoch)
 {
     mwx_softc *sc=com;
     if (!sc || !sc->sc_awdl_lock) return kIOReturnNotReady;
-    MwxAwdlCall call(sc);
-    if(!call.valid()) return enable ? kIOReturnNotReady : kIOReturnSuccess;
+    MwxAwdlCall call(sc,blocked,expectedEpoch);
+    if(!call.valid()) return expectedEpoch ? kIOReturnAborted :
+        enable ? kIOReturnNotReady : kIOReturnSuccess;
     if (!enable) {
         // This call participates in the outer stop/detach drain; its own
         // disable only waits for firmware ownership, avoiding self-deadlock.
@@ -9742,9 +9772,12 @@ IOReturn MtkMwx::awdlEnable(const uint8_t *address, bool enable)
         !sc->sc_detaching && !sc->sc_resetting &&
         (sc->sc_ic.ic_if.if_flags & IFF_RUNNING);
     bool sameAddress=!memcmp(address,sc->sc_awdl_address,6);
+    bool current=!expectedEpoch || mwx_awdl_sync_readiness(sc,*expectedEpoch)==mtkawdl::SyncRecoveryReadiness::Ready;
     IOLockUnlock(sc->sc_awdl_lock);
+    if(!current) return kIOReturnAborted;
     if(alreadyEnabled) return sameAddress ? kIOReturnSuccess : kIOReturnBusy;
     MwxAwdlOperation operation(sc);
+    if(expectedEpoch && operation.epoch!=*expectedEpoch) return kIOReturnAborted;
     if (!operation.valid()) {
         MWX_DEV_LOG(sc,"AWDL enable blocked busy=%d stopping=%d reset=%d running=%d\n",
                     sc->sc_awdl_busy,sc->sc_awdl_stopping,sc->sc_resetting,

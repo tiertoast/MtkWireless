@@ -9,6 +9,7 @@
 #include <AWDL/AwdlProtocol.hpp>
 #include <AWDL/AwdlAdvertisers.hpp>
 #include <AWDL/AwdlTimeline.hpp>
+#include <AWDL/AwdlSyncRecovery.hpp>
 #include <IOKit/IOTimerEventSource.h>
 #include "MtkMwx.hpp"
 class AirportMtkWlan;
@@ -160,6 +161,13 @@ private:
     IOReturn setSync(bool);
     static IOReturn syncGated(OSObject*,void*,void*,void*,void*);
     IOReturn setSyncInGate(bool);
+    IOReturn applySyncInGate(bool,uint64_t,const uint32_t *expectedEpoch=nullptr);
+    uint64_t supersedeSyncRecovery();
+    void reconcileSyncInGate();
+    void publishSyncRecovery(const char *);
+    mtkawdl::SyncRecovery syncRecovery;
+    uint64_t syncRecoveryArmed=0, syncRecoveryRetries=0, syncRecoveryStale=0;
+    uint64_t syncRecoveryExpired=0, syncRecoveryCompleted=0;
     mbuf_t makeFrame(const uint8_t*, size_t);
     AirportMtkWlan *owner = NULL; MtkMwx *hal = NULL;
     IOTimerEventSource *timer = NULL; bool timerAdded = false, stopping = false, enabled = false;
