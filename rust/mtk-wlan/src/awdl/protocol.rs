@@ -151,8 +151,11 @@ pub fn parse_sequence(p: &[u8]) -> Option<Sequence> {
 /// Wireshark's awdl_tag_sync_params consumes 33 fixed bytes, then exactly
 /// 6 + count*width bytes. OWL tx.c adds two zero bytes after that sequence.
 /// The MT7922 captures from November 6 and 8, 2026 have the same boundaries
-/// but tails 00 24, 81 24, 00 dc and 20 d4. Their semantics are unknown.
-/// Admit these only on the exact 16-entry legacy/step-3 shape in TLV4.
+/// but tails 00 24, 81 24, 00 dc and 20 d4; upstream 1.0.13 (3793ade) saw
+/// 20 e4 from an iPhone18,2 on iOS 27. The values change between frames and
+/// OWL writes these two bytes as zero padding, so they carry no field we
+/// parse: admit any two bytes, but only on the exact 16-entry legacy/step-3
+/// shape in TLV4 (a whitelist of observed values rejected the next iOS).
 fn parse_sync_sequence(p: &[u8]) -> Option<Sequence> {
     if let Some(sequence) = parse_sequence(p) {
         return Some(sequence);
@@ -163,8 +166,8 @@ fn parse_sync_sequence(p: &[u8]) -> Option<Sequence> {
     }
     reader.skip(16 * 2).ok()?;
     let used = reader.position();
-    let tail = reader.array::<2>().ok()?;
-    if !reader.is_empty() || !matches!(tail, [0, 0x24] | [0x81, 0x24] | [0, 0xdc] | [0x20, 0xd4]) {
+    reader.array::<2>().ok()?;
+    if !reader.is_empty() {
         return None;
     }
     parse_sequence(p.get(..used)?)
@@ -1895,9 +1898,13 @@ pub const TX_PID_ACTION: u8 = 127;
 pub const TX_RATES: [u16; 7] = [0x4b, 0x4a, 0x49, 0x4d, 0x48, 0x4c, 0x87];
 pub const TX_RATE_MBPS: [u16; 7] = [6, 12, 24, 36, 48, 54, 65];
 const TX_RATE_OFDM_TOP: usize = 5;
-const TX_PROBE_ACKS: u8 = 32;
-const TX_CLEAN_ACKS: u8 = 128;
-const TX_HOLD: u16 = 256;
+// T1 (upstream 1.0.13 302093a): 32/128/256 needed 384 clean ACKs for a full
+// promotion; with this machine's 3-12% losses (mostly AWDL window timing,
+// not the rung) the ladder never left OFDM 6 Mbps. 16/32/64 lets a normal
+// transfer climb; restore the old values if failures rise above 2%.
+const TX_PROBE_ACKS: u8 = 16;
+const TX_CLEAN_ACKS: u8 = 32;
+const TX_HOLD: u16 = 64;
 const TX_STALE_LIMIT: u8 = 128;
 
 #[repr(C)]
@@ -2699,7 +2706,7 @@ mod tests {
     fn unicast_rates_climb_to_ht_and_ignore_isolated_losses() {
         let mut c = TxStatusCounters::default();
         assert_eq!(c.rate(15), 0x4b); // 6 Mbps
-        acks(&mut c, 15, 32 * 6);
+        acks(&mut c, 15, TX_PROBE_ACKS as usize * 6);
         assert_eq!(c.rate(15), 0x87); // HT MCS 7
         assert_eq!(c.rate_mbps(0), 65);
         assert_eq!(c.rate(16), 0x4b); // independent peer
@@ -2712,30 +2719,30 @@ mod tests {
             acks(&mut c, 15, 2000);
             assert_eq!(c.rate(15), 0x87);
         }
-        // Two losses within 128 ACKs do.
+        // Two losses within TX_CLEAN_ACKS ACKs do.
         c.observe(&txs(0x87, true, 15, TX_PID_UNICAST));
-        acks(&mut c, 15, 100);
+        acks(&mut c, 15, TX_CLEAN_ACKS as usize - 1);
         c.observe(&txs(0x87, true, 15, TX_PID_UNICAST));
         assert_eq!(c.rate(15), 0x4c); // 54 Mbps
-        assert_eq!(c.rates[0].probe_after, 256);
+        assert_eq!(c.rates[0].probe_after, TX_HOLD);
     }
 
     #[test]
     fn unicast_rate_probe_failures_back_off_exponentially() {
         let mut c = TxStatusCounters { ofdm_only: true, ..Default::default() };
-        acks(&mut c, 15, 32 * 4);
+        acks(&mut c, 15, TX_PROBE_ACKS as usize * 4);
         assert_eq!(c.rate(15), 0x48); // 48 Mbps
-        acks(&mut c, 15, 32);
+        acks(&mut c, 15, TX_PROBE_ACKS as usize);
         assert_eq!(c.rate(15), 0x4c); // 54: probing
         c.observe(&txs(0x4c, true, 15, TX_PID_UNICAST));
         assert_eq!(c.rate(15), 0x48);
-        assert_eq!(c.rates[0].probe_after, 512);
-        acks(&mut c, 15, 512 + 32);
+        assert_eq!(c.rates[0].probe_after, TX_HOLD << 1);
+        acks(&mut c, 15, ((TX_HOLD as usize) << 1) + TX_PROBE_ACKS as usize);
         assert_eq!(c.rate(15), 0x4c);
         c.observe(&txs(0x4c, true, 15, TX_PID_UNICAST));
-        assert_eq!(c.rates[0].probe_after, 1024);
+        assert_eq!(c.rates[0].probe_after, TX_HOLD << 2);
         // A confirmed probe resets the backoff.
-        acks(&mut c, 15, 1024 + 32 + 32);
+        acks(&mut c, 15, ((TX_HOLD as usize) << 2) + 2 * TX_PROBE_ACKS as usize);
         assert_eq!(c.rate(15), 0x4c);
         assert_eq!(c.rates[0].backoff, 0);
         // ofdm_only never offers HT.
@@ -2747,7 +2754,7 @@ mod tests {
     #[test]
     fn unicast_rate_ignores_stale_and_foreign_reports() {
         let mut c = TxStatusCounters::default();
-        acks(&mut c, 15, 64);
+        acks(&mut c, 15, 2 * TX_PROBE_ACKS as usize);
         assert_eq!(c.rate(15), 0x49); // 24 Mbps
         let before = c.rates[0];
         // Late completions at older rates, other frame classes and PPDU
@@ -2769,7 +2776,7 @@ mod tests {
         }
         assert_eq!(c.rate(15), 0x4a);
         // NSS/STBC bits above the mode field still match.
-        acks(&mut c, 15, 256 + 1);
+        acks(&mut c, 15, TX_HOLD as usize + 1);
         assert_eq!(c.rate(15), 0x49); // hold over: probing 24 again
         c.observe(&txs(0x49 | 0x2000, true, 15, TX_PID_UNICAST));
         assert_eq!(c.rate(15), 0x4a);

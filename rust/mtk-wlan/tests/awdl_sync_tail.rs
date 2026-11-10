@@ -93,11 +93,23 @@ fn compatibility_is_limited_to_exact_observed_embedded_shape() {
             assert!(parse_sequence(&seq).is_none());
         }
     }
-    for tail in [[1, 0x24], [0x80, 0x24], [0, 0x25], [0x81, 0], [0xff, 0xff]] {
+    // Structural rule: any two tail bytes on the exact embedded shape
+    // (values change between frames and iOS releases; 20 e4 is iOS 27).
+    for tail in [[1, 0x24], [0x80, 0x24], [0, 0x25], [0x81, 0], [0xff, 0xff], [0x20, 0xe4]] {
         let mut seq = sequence(1);
         seq.extend_from_slice(&tail);
+        assert!(parse_action(&action_with_sequence(&seq)).is_some(), "tail {tail:02x?}");
+        assert!(parse_sequence(&seq).is_none()); // standalone stays strict
+    }
+    // ...but never a third byte, and never on another encoding.
+    for encoding in [0, 3] {
+        let mut seq = sequence(encoding);
+        seq.extend_from_slice(&[0x20, 0xe4]);
         assert!(parse_action(&action_with_sequence(&seq)).is_none());
     }
+    let mut seq = sequence(1);
+    seq.extend_from_slice(&[0x20, 0xe4, 0]);
+    assert!(parse_action(&action_with_sequence(&seq)).is_none());
     for count in [0u8, 7, 14] {
         let mut seq = sequence(1);
         seq[0] = count;
@@ -112,17 +124,34 @@ fn compatibility_is_limited_to_exact_observed_embedded_shape() {
 }
 
 #[test]
-fn only_zero_padding_and_four_captured_tails_are_accepted() {
+fn every_two_byte_tail_is_accepted_on_a_captured_frame() {
     let mut frame = captures()[0].clone();
+    let reference = parse_action(&frame);
+    assert!(reference.is_some());
     for value in 0..=u16::MAX {
         let tail = value.to_le_bytes();
         frame[114..116].copy_from_slice(&tail);
-        assert_eq!(
-            parse_action(&frame).is_some(),
-            tail == [0, 0] || COMPATIBLE_TAILS.contains(&tail),
-            "tail {tail:02x?}"
-        );
+        // The tail is not parsed: the result is identical for every value.
+        assert_eq!(parse_action(&frame), reference, "tail {tail:02x?}");
     }
+}
+
+/// Upstream 1.0.13 (3793ade) capture from an iPhone18,2 on iOS 27: TLV4
+/// sequence (p[33..], 40 bytes) with trailer 20 e4, rejected by the D1
+/// whitelist.
+#[test]
+fn ios27_embedded_sequence_trailer_is_accepted() {
+    let s: [u8; 40] = [
+        0x0f, 0x01, 0x00, 0x03, 0xff, 0xff, 0x2b, 0x06, //
+        0x00, 0x00, 0x1d, 0x97, 0x00, 0x00, 0x00, 0x00, //
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2b, 0x06, //
+        0x00, 0x00, 0x1d, 0x97, 0x00, 0x00, 0x00, 0x00, //
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0xe4, //
+    ];
+    assert!(parse_sequence(&s).is_none()); // standalone parser stays strict
+    let a = parse_action(&action_with_sequence(&s)).expect("iOS 27 trailer must be tolerated");
+    assert_eq!(a.sequence.count, 16);
+    assert_eq!(a.sequence.step, 3);
 }
 
 #[test]
@@ -323,7 +352,15 @@ fn each_compatible_tail_preserves_channel_election_and_refresh_guards() {
         state.init(&[2, 1, 2, 3, 4, 5], now);
         assert_eq!(refresh_action(&mut state, &mut bad_channel, now), 0);
         assert_eq!(refresh_action(&mut state, &mut extra, now), 0);
-        frame[114..116].copy_from_slice(&[0xff, 0xfe]);
-        assert_eq!(refresh_action(&mut state, &mut frame, now), 0);
+        // Structural rule: an unseen tail refreshes exactly like a captured
+        // one (the whitelist used to reject ff fe here).
+        let mut known = frame.clone();
+        let mut unknown = frame.clone();
+        unknown[114..116].copy_from_slice(&[0xff, 0xfe]);
+        let mut a = State::default();
+        let mut b = State::default();
+        a.init(&[2, 1, 2, 3, 4, 5], now);
+        b.init(&[2, 1, 2, 3, 4, 5], now);
+        assert_eq!(refresh_action(&mut a, &mut known, now), refresh_action(&mut b, &mut unknown, now));
     }
 }
