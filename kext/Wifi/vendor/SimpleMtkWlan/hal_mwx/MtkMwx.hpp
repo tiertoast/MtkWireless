@@ -70,6 +70,7 @@ public:
     IOReturn awdlEnable(const uint8_t *address, bool enable, mtkawdl::SyncStop *blocked=nullptr,
                         const uint32_t *expectedEpoch=nullptr);
     mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t epoch);
+    uint32_t awdlSyncEpoch();
     IOReturn awdlReserve(uint8_t channel, uint32_t durationMs);
     IOReturn awdlPrepareChannel(uint8_t channel);
     bool awdlCanTransmit(uint8_t channel);

@@ -28,6 +28,17 @@ struct SyncRecovery {
         return true;
     }
 
+    // LIFECYCLE v3: follow the same native request into a newer HAL epoch.
+    // The absolute deadline of the first acceptance is kept, so re-arming
+    // never extends the bounded wait.
+    bool rearm(uint64_t request, uint32_t newEpoch, uint64_t absoluteDeadline, uint64_t now)
+    {
+        if(!current(request) || now>=absoluteDeadline) return false;
+        epoch=newEpoch;
+        deadline=absoluteDeadline;
+        return true;
+    }
+
     Action poll(uint64_t now, SyncRecoveryReadiness radio)
     {
         if(!pending()) return Action::Idle;

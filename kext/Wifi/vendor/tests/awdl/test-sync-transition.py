@@ -55,6 +55,7 @@ struct Hal{
   using R=mtkawdl::SyncRecoveryReadiness;
   return epoch!=expected ? R::Stale : stopped||!running ? R::Waiting : R::Ready;
  }
+ uint32_t awdlSyncEpoch(){return epoch;}
  IOReturn awdlEnable(const uint8_t*,bool value,mtkawdl::SyncStop *blocked,const uint32_t *expected){
   if(expected&&awdlSyncRecoveryReadiness(*expected)!=mtkawdl::SyncRecoveryReadiness::Ready)return kIOReturnAborted;
   if(stopped){if(blocked)*blocked={epoch,true};return value?kIOReturnNotReady:kIOReturnSuccess;}
@@ -69,6 +70,7 @@ struct AirportMtkAwdlInterface:OSObject{
  uint64_t syncRequests=0,syncWaits=0,syncFailures=0,syncDeferred=0;
  mtkawdl::SyncRecovery syncRecovery;
  uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
+ static constexpr unsigned kSyncRecoveryMaxRearms=8;bool syncRecoveryFromDeferral=false;uint64_t syncRecoveryDeferredDeadline=0,syncRecoveryRearmed=0;unsigned syncRecoveryRearms=0;bool rearmDeferredSync();
  uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);void reconcileSyncInGate();
  IOReturn applySyncInGate(bool,uint64_t,const uint32_t *expectedEpoch=nullptr);
  struct{uint8_t mac[6]={2,1,2,3,4,5};void holdClock(uint64_t){}void discardControls(){}}state;
@@ -83,7 +85,7 @@ struct AirportMtkAwdlInterface:OSObject{
  void finishAvailabilityWindowForDisable();
  static IOReturn syncGated(OSObject*,void*,void*,void*,void*);
 };
-'''+fn('IOReturn AirportMtkAwdlInterface::setSync(bool')+fn('IOReturn AirportMtkAwdlInterface::syncGated(')+fn('void AirportMtkAwdlInterface::finishAvailabilityWindowForDisable(')+fn('IOReturn AirportMtkAwdlInterface::setSyncInGate(')+fn('uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery(')+fn('void AirportMtkAwdlInterface::publishSyncRecovery(')+fn('void AirportMtkAwdlInterface::reconcileSyncInGate(')+fn('IOReturn AirportMtkAwdlInterface::applySyncInGate(')+r'''
+'''+fn('IOReturn AirportMtkAwdlInterface::setSync(bool')+fn('IOReturn AirportMtkAwdlInterface::syncGated(')+fn('void AirportMtkAwdlInterface::finishAvailabilityWindowForDisable(')+fn('IOReturn AirportMtkAwdlInterface::setSyncInGate(')+fn('uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery(')+fn('bool AirportMtkAwdlInterface::rearmDeferredSync(')+fn('void AirportMtkAwdlInterface::publishSyncRecovery(')+fn('void AirportMtkAwdlInterface::reconcileSyncInGate(')+fn('IOReturn AirportMtkAwdlInterface::applySyncInGate(')+r'''
 int main(){
  AirportMtkAwdlInterface d;
  // The firmware waiter releases the gate. A second native request enters
@@ -188,9 +190,13 @@ int main(){
  block();
  assert(!d.setSync(false));resume();tick();
  assert(!d.enabled && !d.radio.on && d.syncRecoveryStale==1);
+ // v3: the HAL quiesced again after the deferred ON (Wi-Fi power-up).
+ // The same native request follows the new epoch instead of going stale.
  block();
  ++d.radio.epoch;resume();tick();
- assert(!d.enabled && d.syncRecoveryStale==2);
+ assert(!d.enabled && d.syncRecovery.pending() && d.syncRecoveryRearmed==1 && d.syncRecoveryStale==1);
+ tick();
+ assert(d.enabled && d.radio.on && d.syncRecoveryCompleted==2);
  block();
  offset+=mtkawdl::SyncRecovery::waitUS;resume();tick();
  assert(!d.enabled && d.syncRecoveryExpired==1);
@@ -218,11 +224,41 @@ int main(){
  {std::lock_guard<std::mutex> l(mutex);finish=true;}cv.notify_all();
  retry.join();off.join();d.radio.wait=nullptr;
  assert(waited && offResult==0 && !d.enabled && !d.radio.on && !d.syncOwner);
- assert(d.syncRecoveryCompleted==1 && d.syncRecoveryStale==3);
+ assert(d.syncRecoveryCompleted==2 && d.syncRecoveryStale==2);
+ // v3: the HAL quiesces again while the retry is in firmware: re-armed in
+ // the new epoch (not dropped), then completed once the HAL is Ready.
  block();resume();
  d.radio.wait=[&]{++d.radio.epoch; d.radio.stopped=true;};
  tick();d.radio.wait=nullptr;
- assert(!d.enabled && !d.radio.on && !d.syncRecovery.pending() && d.syncRecoveryStale==4);
+ assert(!d.enabled && !d.radio.on && d.syncRecovery.pending() && d.syncRecoveryRearmed==2 && d.syncRecoveryStale==2);
+ resume();tick();
+ assert(d.enabled && d.radio.on && d.syncRecoveryCompleted==3);
+ // Hardware cycle 3 (2026-11-09 23:14, no association, no native retry):
+ // deferred ON, two more quiesces while stopped, then Ready: one enable,
+ // without any new native request.
+ block();
+ {uint64_t requests=d.syncRequests;unsigned calls=d.radio.calls;
+  ++d.radio.epoch;tick();++d.radio.epoch;tick();
+  assert(!d.enabled && d.syncRecovery.pending() && d.syncRecoveryRearmed==4);
+  resume();tick();
+  assert(d.enabled && d.radio.on && d.syncRequests==requests && d.radio.calls==calls+1);}
+ // Bounded: at most kSyncRecoveryMaxRearms epochs per deferred request.
+ block();
+ for(unsigned i=0;i<AirportMtkAwdlInterface::kSyncRecoveryMaxRearms;++i){++d.radio.epoch;tick();assert(d.syncRecovery.pending());}
+ ++d.radio.epoch;tick();
+ assert(!d.syncRecovery.pending() && !d.enabled);
+ resume();tick();assert(!d.enabled && !d.radio.on);
+ // Bounded: the first acceptance's absolute deadline is never extended.
+ block();
+ ++d.radio.epoch;offset+=mtkawdl::SyncRecovery::waitUS;tick();
+ assert(!d.syncRecovery.pending() && !d.enabled);
+ resume();tick();assert(!d.enabled);
+ // An OFF after a re-arm still cancels the deferred request.
+ block();
+ ++d.radio.epoch;tick();assert(d.syncRecovery.pending());
+ assert(!d.setSync(false));resume();tick();
+ assert(!d.enabled && !d.radio.on && !d.syncRecovery.pending());
+ puts("PASS lifecycle v3: deferred ON follows newer HAL epochs (no native retry needed), in-flight re-quiesce, bounded epochs and deadline, OFF still cancels.");
  // Hardware sequence of 2026-11-09: deferred ON, then a duplicate native ON
  // while the HAL is still stopping (re-deferred, old ticket stale), then the
  // HAL returns and the timer completes exactly one enable.

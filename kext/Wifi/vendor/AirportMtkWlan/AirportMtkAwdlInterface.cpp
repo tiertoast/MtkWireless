@@ -641,14 +641,35 @@ void AirportMtkAwdlInterface::publishSyncRecovery(const char *stage)
     setProperty("MTKAWDLSyncRecoveryStale",syncRecoveryStale,64);
     setProperty("MTKAWDLSyncRecoveryExpired",syncRecoveryExpired,64);
     setProperty("MTKAWDLSyncRecoveryCompleted",syncRecoveryCompleted,64);
+    setProperty("MTKAWDLSyncRecoveryRearmed",syncRecoveryRearmed,64);
 }
 
 uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery()
 {
     bool pending=syncRecovery.pending();
     uint64_t request=syncRecovery.supersede();
+    syncRecoveryFromDeferral=false;
     if(pending) { ++syncRecoveryStale; publishSyncRecovery("superseded"); }
     return request;
+}
+
+// LIFECYCLE v3 (hardware 2026-11-09 23:14): the ON is accepted while the HAL
+// quiesces, and the Wi-Fi power-up quiesces again, so the ticket's epoch is
+// always stale before the HAL is Ready. Without an association airportd never
+// asks again. Follow the same native request (unchanged generation) into the
+// current epoch, within the first acceptance's absolute deadline and a bounded
+// number of epochs. Never for tickets that were not deferred.
+bool AirportMtkAwdlInterface::rearmDeferredSync()
+{
+    if(!syncRecoveryFromDeferral || stopping || !hal ||
+       syncRecoveryRearms>=kSyncRecoveryMaxRearms) return false;
+    uint32_t epoch=hal->awdlSyncEpoch();
+    if(!syncRecovery.rearm(syncRecovery.generation,epoch,syncRecoveryDeferredDeadline,awdlNow()))
+        return false;
+    ++syncRecoveryRearms; ++syncRecoveryRearmed;
+    publishSyncRecovery("rearmed-new-epoch");
+    timer->setTimeoutMS(100);
+    return true;
 }
 
 void AirportMtkAwdlInterface::reconcileSyncInGate()
@@ -664,8 +685,11 @@ void AirportMtkAwdlInterface::reconcileSyncInGate()
     case Action::Wait:
         timer->setTimeoutMS(100); return;
     case Action::Stale:
+        if(rearmDeferredSync()) return;
+        syncRecoveryFromDeferral=false;
         ++syncRecoveryStale; publishSyncRecovery("stale-epoch"); return;
     case Action::Expired:
+        syncRecoveryFromDeferral=false;
         ++syncRecoveryExpired; publishSyncRecovery("expired"); return;
     case Action::Retry: {
         uint32_t epoch=syncRecovery.epoch;
@@ -728,6 +752,8 @@ IOReturn AirportMtkAwdlInterface::applySyncInGate(bool value,uint64_t request,co
     if(!expectedEpoch && !stopping && blocked.blocked && status==kIOReturnNotReady) {
         if(syncRecovery.arm(request,blocked.epoch,awdlNow())) {
             ++syncRecoveryArmed; ++syncDeferred; deferred=true;
+            syncRecoveryFromDeferral=true; syncRecoveryRearms=0;
+            syncRecoveryDeferredDeadline=syncRecovery.deadline;
             publishSyncRecovery("deferred");
             timer->setTimeoutMS(100);
         } else {
@@ -745,10 +771,15 @@ IOReturn AirportMtkAwdlInterface::applySyncInGate(bool value,uint64_t request,co
     setProperty("MTKAWDLSyncDeferred",syncDeferred,64);
     XYLog("AWDL sync request=%d enabled=%d status=0x%x deferred=%d waits=%llu\n",value,enabled,status,deferred,syncWaits);
     if(expectedEpoch) {
-        if(superseded || staleEpoch) {
+        if(staleEpoch && !superseded && rearmDeferredSync()) {
+            // The HAL quiesced again during this retry: follow it (v3).
+        } else if(superseded || staleEpoch) {
+            syncRecoveryFromDeferral=false;
             ++syncRecoveryStale; publishSyncRecovery(staleEpoch ? "stale-epoch" : "superseded-in-flight");
-        } else if(status==kIOReturnSuccess) { ++syncRecoveryCompleted; publishSyncRecovery("completed"); }
-        else publishSyncRecovery("retry-failed");
+        } else if(status==kIOReturnSuccess) {
+            syncRecoveryFromDeferral=false;
+            ++syncRecoveryCompleted; publishSyncRecovery("completed");
+        } else { syncRecoveryFromDeferral=false; publishSyncRecovery("retry-failed"); }
     }
     syncOwner=NULL;
     _fCommandGate->commandWakeup(&syncOwner,false);

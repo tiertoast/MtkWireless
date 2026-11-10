@@ -168,6 +168,13 @@ private:
     mtkawdl::SyncRecovery syncRecovery;
     uint64_t syncRecoveryArmed=0, syncRecoveryRetries=0, syncRecoveryStale=0;
     uint64_t syncRecoveryExpired=0, syncRecoveryCompleted=0;
+    // LIFECYCLE v3: a ticket from a deferred ON follows the request into a
+    // newer HAL epoch until the first acceptance's absolute deadline.
+    static constexpr unsigned kSyncRecoveryMaxRearms = 8;
+    bool syncRecoveryFromDeferral=false;
+    uint64_t syncRecoveryDeferredDeadline=0, syncRecoveryRearmed=0;
+    unsigned syncRecoveryRearms=0;
+    bool rearmDeferredSync();
     mbuf_t makeFrame(const uint8_t*, size_t);
     AirportMtkWlan *owner = NULL; MtkMwx *hal = NULL;
     IOTimerEventSource *timer = NULL; bool timerAdded = false, stopping = false, enabled = false;

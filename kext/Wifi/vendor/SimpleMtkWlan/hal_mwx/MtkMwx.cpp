@@ -9725,6 +9725,17 @@ mtkawdl::SyncRecoveryReadiness MtkMwx::awdlSyncRecoveryReadiness(uint32_t epoch)
     return ready;
 }
 
+// MtkWireless: current AWDL HAL epoch, for following a deferred native ON
+// across a quiesce (every stop advances the epoch).
+uint32_t MtkMwx::awdlSyncEpoch()
+{
+    if(!com || !com->sc_awdl_lock) return 0;
+    IOLockLock(com->sc_awdl_lock);
+    uint32_t epoch=com->sc_awdl_epoch;
+    IOLockUnlock(com->sc_awdl_lock);
+    return epoch;
+}
+
 IOReturn MtkMwx::awdlEnable(const uint8_t *address, bool enable,mtkawdl::SyncStop *blocked,
                           const uint32_t *expectedEpoch)
 {

@@ -37,6 +37,7 @@ functions='\n'.join(fn(source,s) for s in [
  'IOReturn AirportMtkAwdlInterface::applySyncInGate(',
  'void AirportMtkAwdlInterface::publishSyncRecovery(',
  'uint64_t AirportMtkAwdlInterface::supersedeSyncRecovery(',
+ 'bool AirportMtkAwdlInterface::rearmDeferredSync(',
  'IOReturn AirportMtkAwdlInterface::setMacAddress(',
  'ether_addr AirportMtkAwdlInterface::getSelfMacAddr('])
 functions+='\n'+fn(controller,'bool AirportMtkWlan::createAwdlInterface(ether_addr *address)')
@@ -104,7 +105,7 @@ struct IC {uint8_t ic_myaddr[6]={2,1,2,3,4,5};int ic_state=IEEE80211_S_RUN;};
 struct MtkMwx:IOService {IC ic; bool channels=true,ready=true; std::function<void()> wait;
  bool awdlInterfaceReady(){return ready;}
  IC *get80211Controller(){return &ic;}bool awdlChannelAllowed(unsigned){return channels;} uint8_t infraChannel=0;uint8_t awdlInfraChannel(){return infraChannel;}uint8_t awdlOnlyChannel(){return infraChannel;}void awdlInfraSleep(unsigned){}void awdlInfraWakeIfIdle(){}bool awdlChannelReachable(unsigned c){return awdlChannelAllowed(c)&&(!infraChannel||c==infraChannel);}
- mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t){return mtkawdl::SyncRecoveryReadiness::Ready;}
+ mtkawdl::SyncRecoveryReadiness awdlSyncRecoveryReadiness(uint32_t){return mtkawdl::SyncRecoveryReadiness::Ready;}uint32_t awdlSyncEpoch(){return 0;}
  IOReturn awdlEnable(const uint8_t*,bool,mtkawdl::SyncStop * =nullptr,const uint32_t * =nullptr){if(wait)wait();return 0;}};
 struct IOSkywalkPacketQueue;
 struct IOSkywalkPacket:OSObject {
@@ -203,6 +204,7 @@ struct AirportMtkAwdlInterface:NativeProtocol {
  void *bsd=nullptr;IOThread syncOwner=nullptr;uint64_t syncRequests=0,syncWaits=0,syncFailures=0,syncDeferred=0;
  mtkawdl::SyncRecovery syncRecovery;
  uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
+ static constexpr unsigned kSyncRecoveryMaxRearms=8;bool syncRecoveryFromDeferral=false;uint64_t syncRecoveryDeferredDeadline=0,syncRecoveryRearmed=0;unsigned syncRecoveryRearms=0;bool rearmDeferredSync();
  uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);
  IOReturn applySyncInGate(bool,uint64_t,const uint32_t * =nullptr);
  IOReturn setMacAddress(ether_addr&) override;ether_addr getSelfMacAddr() override;
