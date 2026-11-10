@@ -1,0 +1,776 @@
+{
+  "source": "<capture-host>/diagnostics/airdrop-awdl-20261106-211618",
+  "transform": "peer address replaced with 02:00:00:00:00:01; exact retained IORegistry MTKAWDLRejectedAction bytes",
+  "frames": [
+    {
+      "file": "frame-000.bin",
+      "sha256": "06b7764c59a348988f9466622218f8ae92befc289dc3060153349e681d2c7171",
+      "length": 643,
+      "snapshots": [
+        "awdl-before.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-001.bin",
+      "sha256": "6ccf52fa99e042880c9f885df92510f2b0b5c562e8dfe9d66c935de5ba5d831a",
+      "length": 643,
+      "snapshots": [
+        "sample-211623.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-002.bin",
+      "sha256": "0df6093eb2d81228894d26a06b1c1bd3efc531e91b22677c22920aa7869b0fc4",
+      "length": 643,
+      "snapshots": [
+        "sample-211624.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-003.bin",
+      "sha256": "49557350187e5a035258604bd41fbf0f12b78327dbf65e625b563092929c2bcc",
+      "length": 643,
+      "snapshots": [
+        "sample-211625.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-004.bin",
+      "sha256": "05c43f7bff744a9030648a033c1d86753a5345c9c05fa180c718672873327126",
+      "length": 643,
+      "snapshots": [
+        "sample-211626.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-005.bin",
+      "sha256": "210732b7b474f4790369fd96f4a874ddfcc4272b2acab1dce3d35087b501e01a",
+      "length": 643,
+      "snapshots": [
+        "sample-211627.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-006.bin",
+      "sha256": "9f9d89d0ca3b299458a2f0e8035061b4e50dd1f4f2c6536f554cb044cbec786f",
+      "length": 643,
+      "snapshots": [
+        "sample-211628.plist",
+        "sample-211629.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-007.bin",
+      "sha256": "b647bbdeb456655609b28a2db5e63ff1b6340d593a4f2c45fb6cfafbdd6778af",
+      "length": 643,
+      "snapshots": [
+        "sample-211630.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-008.bin",
+      "sha256": "71b1439ec22673137e2878f1081e7e9e8606eadf1c4ac7c41b08be1c5d39eba3",
+      "length": 643,
+      "snapshots": [
+        "sample-211631.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-009.bin",
+      "sha256": "588baa20e6f7b67ef6a70810085b2b4ab388a63fe7576f0838e10a0869e523ae",
+      "length": 643,
+      "snapshots": [
+        "sample-211632.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-010.bin",
+      "sha256": "63bd74985eb4b54d94499b7b54c376b5044d900df3af05b5f3437a86776b4d89",
+      "length": 643,
+      "snapshots": [
+        "sample-211633.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-011.bin",
+      "sha256": "24486ba89e2e162a994e656bc8e207c89d5a524c65dd012c002b6bb7447fcd02",
+      "length": 643,
+      "snapshots": [
+        "sample-211634.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-012.bin",
+      "sha256": "46d39cc48c5437972ac9986286cbccd079d9a99b38552381f87e825040ee2108",
+      "length": 643,
+      "snapshots": [
+        "sample-211636.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-013.bin",
+      "sha256": "17222a6beaf32d51cc662d2aca5822bc49217519fc0e23c698db30366cf04213",
+      "length": 643,
+      "snapshots": [
+        "sample-211637.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-014.bin",
+      "sha256": "e1878613ff4dd630243817a5b945bae8a1248f92819bc246e0bdb117b314f3a3",
+      "length": 643,
+      "snapshots": [
+        "sample-211638.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-015.bin",
+      "sha256": "60b87ffeefc7b11e7ab71177b773e995ef57a8dae4efaaca4de6d219773e0247",
+      "length": 643,
+      "snapshots": [
+        "sample-211639.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-016.bin",
+      "sha256": "307c203cc3149a817f79a0aa67c7cea246824d3c77860587836aa1411954ddc7",
+      "length": 643,
+      "snapshots": [
+        "sample-211640.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-017.bin",
+      "sha256": "b740913d87b8fff31f1c45d23652f2b1808a96cee3c2d3ca3f757e272472acdd",
+      "length": 643,
+      "snapshots": [
+        "sample-211641.plist"
+      ],
+      "tlv4_tail": "8124"
+    },
+    {
+      "file": "frame-018.bin",
+      "sha256": "7719783f44f8547259e31b55f3646ef2f57de5664f7d44fd337baeb9a34e8c65",
+      "length": 643,
+      "snapshots": [
+        "sample-211642.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-019.bin",
+      "sha256": "a71a204e9d30e9b09af79444becb3f2d0dcc06b24082ba41db034fa08910a606",
+      "length": 643,
+      "snapshots": [
+        "sample-211643.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-020.bin",
+      "sha256": "8a3232244f844551db94e5bebc8953a0db92b3d54f1346443f5cdd74df53b7f6",
+      "length": 643,
+      "snapshots": [
+        "sample-211644.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-021.bin",
+      "sha256": "2210e3657e9eda34f2d644bf5efaed862f358192191cf21ba1b3db4a466f9dc3",
+      "length": 643,
+      "snapshots": [
+        "sample-211645.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-022.bin",
+      "sha256": "88f6f7b3f130ebc3a30da1a26ca65b75d39c03f6e884d15b45e8a264f4e1318c",
+      "length": 643,
+      "snapshots": [
+        "sample-211646.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-023.bin",
+      "sha256": "f44187ee827a46d67ab57080fd015f620a19fd9ac7c1e0bbff963a445c78116c",
+      "length": 643,
+      "snapshots": [
+        "sample-211647.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-024.bin",
+      "sha256": "a41fdf4b56711e58d6669bbf1153e301856023347c63574afb8f8fda9adfe086",
+      "length": 643,
+      "snapshots": [
+        "sample-211648.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-025.bin",
+      "sha256": "6ba291ab5484fb1807ae2e1369a339b7d39cff1e129f7ac0bd2fce936b483760",
+      "length": 643,
+      "snapshots": [
+        "sample-211649.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-026.bin",
+      "sha256": "0e6fb9873fad58733524cec7fbfa1ae30d72b16acca99373c892817661cd9d80",
+      "length": 643,
+      "snapshots": [
+        "sample-211650.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-027.bin",
+      "sha256": "81f2c91c1e458f5fb588d16e6e71bf2e1a006a436255c93d53fc4684652ebf67",
+      "length": 643,
+      "snapshots": [
+        "sample-211651.plist",
+        "sample-211652.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-028.bin",
+      "sha256": "63c8bfe2555eb4985e41be2e0c58bf551559f3a1e2e1c693b1c090b88b25a2eb",
+      "length": 643,
+      "snapshots": [
+        "sample-211653.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-029.bin",
+      "sha256": "741ed9551b08bcb32a6d683eecacb0fbe039f4372f5bf021f7a9fe70d9089c6b",
+      "length": 643,
+      "snapshots": [
+        "sample-211654.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-030.bin",
+      "sha256": "e5661fcaabdb5c266c9b2a24dc70edd34c521221e4acc2cfef6ed7124b215cf9",
+      "length": 643,
+      "snapshots": [
+        "sample-211655.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-031.bin",
+      "sha256": "120e9b449951fd1ac5e4d7988b79326d3d8f00131fddf55af19377c40b01b2b7",
+      "length": 643,
+      "snapshots": [
+        "sample-211656.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-032.bin",
+      "sha256": "5e94c3cfdd19b9a7edaf0c0c56c80bea60bcfca29dac3902fd9db477fc5be1cf",
+      "length": 643,
+      "snapshots": [
+        "sample-211657.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-033.bin",
+      "sha256": "dbf02bf7415ca3e73c0077e3fa9e7c87c16c5e0b45e6bfd873e56bc090f5f5e3",
+      "length": 643,
+      "snapshots": [
+        "sample-211658.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-034.bin",
+      "sha256": "40504f4645fadd1282842c19ddf14fa35dfbf1922e43d38d84cad3a66152d549",
+      "length": 643,
+      "snapshots": [
+        "sample-211659.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-035.bin",
+      "sha256": "d346a3c1fa5e9fd2c1fd7ef58c82c519adcfbb0037ceae89a58c121afac5a970",
+      "length": 643,
+      "snapshots": [
+        "sample-211700.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-036.bin",
+      "sha256": "366e26e4228c1237b1e2e4aa919879a8d3df2bdb93d6030b4e7a92eb83390fb7",
+      "length": 643,
+      "snapshots": [
+        "sample-211701.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-037.bin",
+      "sha256": "23233f30472facfb73050e2aee6cedaa0dedd4f330a9c79d00179f136926764c",
+      "length": 643,
+      "snapshots": [
+        "sample-211702.plist",
+        "sample-211703.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-038.bin",
+      "sha256": "01832f51cb9bcb254317e2771bec3e14e03b2e6c37aa47e9018f538f60bca0ce",
+      "length": 643,
+      "snapshots": [
+        "sample-211704.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-039.bin",
+      "sha256": "7d37a3b5a181ba611d8085287427a516a67d2e9a979ec165e25d2ffb03c17409",
+      "length": 643,
+      "snapshots": [
+        "sample-211705.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-040.bin",
+      "sha256": "d02899457acc2f6ae20dd5a8ed476695f45e3af3d7fbb0cf623dc31ce2f43fd1",
+      "length": 643,
+      "snapshots": [
+        "sample-211706.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-041.bin",
+      "sha256": "d83d18392aa3c7130ad68fd83a9ae4a097b64eee06fa91501375926e95227027",
+      "length": 643,
+      "snapshots": [
+        "sample-211707.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-042.bin",
+      "sha256": "3179fc03c08878f7411ed053b2731380c6d34fecadf5885f9ec512112d06ce4c",
+      "length": 643,
+      "snapshots": [
+        "sample-211708.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-043.bin",
+      "sha256": "c6927d74003e0cd064f199f1525aeb480e8e5339fa71329795442cfe134b3fc9",
+      "length": 643,
+      "snapshots": [
+        "sample-211709.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-044.bin",
+      "sha256": "12c7889fb42e4e4546ccc8fa743efe2ee720581a85b3f083833dc0933b809e75",
+      "length": 643,
+      "snapshots": [
+        "sample-211710.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-045.bin",
+      "sha256": "3f83e95d8a6cdc7e6b85c94783ab5d2ea1dcc9038f7f6db7b483bd2368e7a162",
+      "length": 643,
+      "snapshots": [
+        "sample-211711.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-046.bin",
+      "sha256": "61be105f0240e88c17f9f0fe3afde8002878ca4187070d692cecdc278bf07a0a",
+      "length": 643,
+      "snapshots": [
+        "sample-211712.plist",
+        "sample-211713.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-047.bin",
+      "sha256": "e752e4f62b46591b86daba76dab8845b52e7b83846010697b8920e2da96ff44b",
+      "length": 643,
+      "snapshots": [
+        "sample-211714.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-048.bin",
+      "sha256": "6d41c439231df0c867e9b93de1e73e07bbb9c59b45624b82ddce62f4b604c769",
+      "length": 643,
+      "snapshots": [
+        "sample-211716.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-049.bin",
+      "sha256": "c7ce2877aa6f96d51852998f963f7b049690f87ee62e86fb9ae95ab191af5a19",
+      "length": 643,
+      "snapshots": [
+        "sample-211717.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-050.bin",
+      "sha256": "aadd5627d27369dec0a0f45a4dfc26d3502d91c70caa69d3a212f2b381f89bba",
+      "length": 768,
+      "snapshots": [
+        "sample-211718.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-051.bin",
+      "sha256": "376fcf261f7bd123c30b8ddd439d006d9eb6606b1b4efbf96d28f933830b27ce",
+      "length": 768,
+      "snapshots": [
+        "sample-211719.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-052.bin",
+      "sha256": "fd1fb91b999153f89927f2b87d8eb2504e5ef0e1b660d94420513c8f572f3f50",
+      "length": 768,
+      "snapshots": [
+        "sample-211720.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-053.bin",
+      "sha256": "19f074804d1c98f16a0e39f0892aeabbbfa071e8829441c1fb1614c7dbb1d03d",
+      "length": 768,
+      "snapshots": [
+        "sample-211721.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-054.bin",
+      "sha256": "3955f54651f526244d7144f40fc40cf75bf4ff5d71b92ee5549228f45679761a",
+      "length": 768,
+      "snapshots": [
+        "sample-211722.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-055.bin",
+      "sha256": "0ec90487136d1e3b047e15b9b84a93a6bb1ae4ae33aae6737af368062a18c46a",
+      "length": 768,
+      "snapshots": [
+        "sample-211723.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-056.bin",
+      "sha256": "6369ec86ecafa25c96a47ab967335130721f02c153ed01f6f55c17fc3c3bcdfe",
+      "length": 768,
+      "snapshots": [
+        "sample-211724.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-057.bin",
+      "sha256": "8964144e30d9c0e56f7d3c243abcca7dd33cffc34ee1d7902f6f8b9d8fe88aa0",
+      "length": 768,
+      "snapshots": [
+        "sample-211725.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-058.bin",
+      "sha256": "e49c51813709a0ca753ad32149ddf4e1a7f233cbe1a461b803c1fa3f3d9e7191",
+      "length": 768,
+      "snapshots": [
+        "sample-211726.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-059.bin",
+      "sha256": "f183bf1e2da3f2ec9e149a485ca61640bde01aa292b517f8046d01b090cef3af",
+      "length": 768,
+      "snapshots": [
+        "sample-211727.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-060.bin",
+      "sha256": "b85a7b2627cfc9926c77596f8e13f6ce258265268a9da1f2dc9d0f61993f74de",
+      "length": 768,
+      "snapshots": [
+        "sample-211728.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-061.bin",
+      "sha256": "fe732a03bd59a56a4f0800c7f72bc6e59660eea57a8ffedddb1c8bef4efefabc",
+      "length": 768,
+      "snapshots": [
+        "sample-211729.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-062.bin",
+      "sha256": "6d4cffd71dae2fe78f6ceee4508b39560c798b33d0c6c8aca10ec616d72b7a49",
+      "length": 768,
+      "snapshots": [
+        "sample-211730.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-063.bin",
+      "sha256": "010dce2173f40510d92a64cebaa7a4f5ff2894874e00ac3d31be5f1a916d1fec",
+      "length": 768,
+      "snapshots": [
+        "sample-211731.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-064.bin",
+      "sha256": "f703b4ab3c7ff7a45b615958b26a94b7c5a443e70eda480f236767c2cdbb04b6",
+      "length": 768,
+      "snapshots": [
+        "sample-211732.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-065.bin",
+      "sha256": "c5d510717e17e1638bc6d13ab339ae0ea520c3b2760b137ef386b2afeeb285f8",
+      "length": 768,
+      "snapshots": [
+        "sample-211733.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-066.bin",
+      "sha256": "868718dd0998381e398224d63eb717903581b3b0eda0e769ac6e356beeb5b55f",
+      "length": 768,
+      "snapshots": [
+        "sample-211734.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-067.bin",
+      "sha256": "063a08a0a3d53450ee870274c629aef6a387495321306e6c9b39993b5f21a27f",
+      "length": 768,
+      "snapshots": [
+        "sample-211735.plist",
+        "sample-211736.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-068.bin",
+      "sha256": "893a9b5fa60bd948b8e7f9b939d918fe209a598d8f3bb428b8182cb4ae27e60f",
+      "length": 768,
+      "snapshots": [
+        "sample-211737.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-069.bin",
+      "sha256": "e123de5bdffdc5754f23c374981a8ab87b3e8230e1f96629708ca689d392bc32",
+      "length": 768,
+      "snapshots": [
+        "sample-211738.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-070.bin",
+      "sha256": "92a5614b3f7e728aeb1929d34d20d449c5638d739b54ac0769bc564be6b60de9",
+      "length": 768,
+      "snapshots": [
+        "sample-211739.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-071.bin",
+      "sha256": "789b1c9197c1b92c992bde9649d8b9efd87d849ef16264e640dccdc9141c4432",
+      "length": 768,
+      "snapshots": [
+        "sample-211740.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-072.bin",
+      "sha256": "65c2a4f76b16aa99df75cee60dcb9346c54ba373b67a7be1dc05d8981c2e889b",
+      "length": 768,
+      "snapshots": [
+        "sample-211741.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-073.bin",
+      "sha256": "1b3abc042f4ee3da062abf6ee12ce5a188096c387d04c7137955f141e39f4ad4",
+      "length": 768,
+      "snapshots": [
+        "sample-211742.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-074.bin",
+      "sha256": "7b4db3535105146d6ce681a1a35c8cba026403ea2a9687ac7f116f336dcdd213",
+      "length": 768,
+      "snapshots": [
+        "sample-211743.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-075.bin",
+      "sha256": "e409b526118f3d25e86b84b2a721b16c5641df8b22a485388ce91e026e800cd7",
+      "length": 768,
+      "snapshots": [
+        "sample-211744.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-076.bin",
+      "sha256": "75f1947b45ddba1542be57b9df85a90802891e0cb42e2e30b6a8891f7ee6482d",
+      "length": 768,
+      "snapshots": [
+        "sample-211745.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-077.bin",
+      "sha256": "8b778868b8b1c4acaf5072900d7240202e6be07c0be217da36a8fe96397224e5",
+      "length": 768,
+      "snapshots": [
+        "sample-211746.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-078.bin",
+      "sha256": "1964ed9e8c69e0d900f377ff410e95bf216f1b37e068df73bc6eacefbafea80b",
+      "length": 768,
+      "snapshots": [
+        "sample-211747.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-079.bin",
+      "sha256": "5f842fc26a5497a55e18f40d6d5309ba4686cbf6638f4872960f81dd339e1644",
+      "length": 768,
+      "snapshots": [
+        "sample-211748.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-080.bin",
+      "sha256": "7815f487506fae5284785c86996920972702baef0a7eb46be806d1619390561d",
+      "length": 768,
+      "snapshots": [
+        "sample-211749.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-081.bin",
+      "sha256": "a28b9c8dd3e913ef5d6b13351ef14c54ab31dd5eab9ed7e96982d8dcc6ce35f3",
+      "length": 768,
+      "snapshots": [
+        "sample-211750.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-082.bin",
+      "sha256": "d5781fdda9bfc892e311c0a8aa447ed71e661cba104e5c83bc99e5e026990482",
+      "length": 768,
+      "snapshots": [
+        "sample-211751.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-083.bin",
+      "sha256": "5938c7016caa2755813c0c73cd40c51a4e62fc3c614fed5e30acc9204538fa97",
+      "length": 768,
+      "snapshots": [
+        "sample-211752.plist"
+      ],
+      "tlv4_tail": "0024"
+    },
+    {
+      "file": "frame-084.bin",
+      "sha256": "6f07507e9783211437b231f2f1e5ec136f1ccffadc487f2897b15ac133f07feb",
+      "length": 768,
+      "snapshots": [
+        "awdl-after.plist"
+      ],
+      "tlv4_tail": "0024"
+    }
+  ]
+}

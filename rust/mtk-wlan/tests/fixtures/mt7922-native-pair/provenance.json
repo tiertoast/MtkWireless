@@ -1,0 +1,6 @@
+{
+  "snapshot": "<capture-host>/diagnostics/airdrop-awdl-20261106-211618/sample-211742.plist",
+  "frame_sha256": "1b3abc042f4ee3da062abf6ee12ce5a188096c387d04c7137955f141e39f4ad4",
+  "advertiser_sha256": "0c15dacd0784b3212a406e04dadb8ad89ccae6bd1b0a8bb33a479eed3d4609a7",
+  "transform": "peer address replaced with 02:00:00:00:00:01"
+}
