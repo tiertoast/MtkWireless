@@ -200,7 +200,7 @@ struct AirportMtkAwdlInterface:NativeProtocol {
  struct {bool open=false;void reset(){open=false;}} awTimeline;void notifyAvailabilityWindowEnd(uint64_t){awTimeline.open=false;}
  uint8_t nativePeerSamples[16]{};
  struct {uint8_t master[6]={};} syncState;
- void *bsd=nullptr;IOThread syncOwner=nullptr;uint64_t syncRequests=0,syncWaits=0,syncFailures=0;
+ void *bsd=nullptr;IOThread syncOwner=nullptr;uint64_t syncRequests=0,syncWaits=0,syncFailures=0,syncDeferred=0;
  mtkawdl::SyncRecovery syncRecovery;
  uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
  uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);

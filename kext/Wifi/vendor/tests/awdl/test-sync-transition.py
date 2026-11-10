@@ -66,7 +66,7 @@ struct Hal{
 struct AirportMtkAwdlInterface:OSObject{
  Hal radio;Hal*hal=&radio;Timer clock;Timer*timer=&clock;
  struct{void reset(){}}dataPeers;bool trafficActive=false,trafficPeerInstalled=false;uint8_t installedTrafficPeer[6]{};uint8_t discoveryTxPeers[3][6]{};struct AddbaDecline{uint8_t request[24+9];bool valid;}addbaPending[4]{};uint64_t addbaRequests=0,addbaQueued=0,addbaSubmitted=0,addbaFailed=0,addbaExpired=0,addbaDeferred=0,addbaDropped=0,delbaReceived=0;bool stopping=false,enabled=false;IOThread syncOwner=nullptr;
- uint64_t syncRequests=0,syncWaits=0,syncFailures=0;
+ uint64_t syncRequests=0,syncWaits=0,syncFailures=0,syncDeferred=0;
  mtkawdl::SyncRecovery syncRecovery;
  uint64_t syncRecoveryArmed=0,syncRecoveryRetries=0,syncRecoveryStale=0,syncRecoveryExpired=0,syncRecoveryCompleted=0;
  uint64_t supersedeSyncRecovery();void publishSyncRecovery(const char*);void reconcileSyncInGate();
@@ -168,10 +168,15 @@ int main(){
   gate.runAction([](OSObject*,void *self,void*,void*,void*){
    static_cast<AirportMtkAwdlInterface*>(self)->reconcileSyncInGate();return 0u;},&d);
  };
+ // LIFECYCLE v2: an ON refused only because the HAL is stopping is accepted
+ // (no airportd rollback OFF), stays disabled until the retry succeeds and is
+ // not counted as a sync failure.
  auto block=[&]{
   assert(!d.setSync(false));
   d.radio.stopped=true;d.radio.running=false;
-  assert(d.setSync(true)==kIOReturnNotReady && !d.enabled && d.syncRecovery.pending());
+  uint64_t failures=d.syncFailures,deferred=d.syncDeferred;
+  assert(d.setSync(true)==kIOReturnSuccess && !d.enabled && !d.radio.on && d.syncRecovery.pending());
+  assert(d.syncFailures==failures && d.syncDeferred==deferred+1);
  };
  auto resume=[&]{d.radio.stopped=false;d.radio.running=true;};
  block();
@@ -218,6 +223,19 @@ int main(){
  d.radio.wait=[&]{++d.radio.epoch; d.radio.stopped=true;};
  tick();d.radio.wait=nullptr;
  assert(!d.enabled && !d.radio.on && !d.syncRecovery.pending() && d.syncRecoveryStale==4);
+ // Hardware sequence of 2026-11-09: deferred ON, then a duplicate native ON
+ // while the HAL is still stopping (re-deferred, old ticket stale), then the
+ // HAL returns and the timer completes exactly one enable.
+ block();
+ unsigned staleBefore=d.syncRecoveryStale,completedBefore=d.syncRecoveryCompleted,callsBefore=d.radio.calls;
+ assert(d.setSync(true)==kIOReturnSuccess && !d.enabled && d.syncRecovery.pending());
+ assert(d.syncRecoveryStale==staleBefore+1);
+ resume();tick();tick();
+ assert(d.enabled && d.radio.on && d.syncRecoveryCompleted==completedBefore+1 && d.radio.calls==callsBefore+1);
+ // A firmware failure that is not a HAL stop is still returned as a failure.
+ assert(!d.setSync(false));d.radio.status=17;
+ assert(d.setSync(true)==17 && !d.enabled && !d.syncRecovery.pending());d.radio.status=0;
+ puts("PASS lifecycle v2: stop-refused ON deferred as success, duplicate ON re-deferred, one completion, real failures still propagate.");
  puts("PASS recovery: blocked ON, stopped/non-running polling, one same-epoch retry, OFF cancellation, later epoch, deadline and in-flight OFF.");
  puts("PASS production sync: concurrent enable/enable and enable/disable across firmware gate sleep, real failure propagation, recursion rejection, teardown cancellation, bounded owner wait and retain balance.");
 }

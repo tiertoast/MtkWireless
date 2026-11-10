@@ -175,6 +175,7 @@ private:
     // transitions across that interval, including duplicate native requests.
     IOThread syncOwner = NULL;
     uint64_t syncRequests = 0, syncWaits = 0, syncFailures = 0;
+    uint64_t syncDeferred = 0;  // ONs accepted while the HAL was stopping (LIFECYCLE v2)
     IOSkywalkPacketBufferPool *txPool = NULL, *rxPool = NULL;
     IOSkywalkTxSubmissionQueue *txSubmit = NULL;
     IOSkywalkTxCompletionQueue *txComplete = NULL;

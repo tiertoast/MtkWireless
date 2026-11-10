@@ -717,30 +717,42 @@ IOReturn AirportMtkAwdlInterface::applySyncInGate(bool value,uint64_t request,co
     } else if(!stopping) {
         nextAction=0; timer->setTimeoutMS(1);
     }
-    if(status!=kIOReturnSuccess) ++syncFailures;
-    setProperty("MTKAWDLSyncEnableStatus",static_cast<uint64_t>(status),32);
-    setProperty("MTKAWDLSyncEnabled",enabled);
-    setProperty("MTKAWDLSyncTransition",status==kIOReturnSuccess ? (enabled ? "enabled" : "disabled") : "failed");
-    setProperty("MTKAWDLSyncRequests",syncRequests,64);
-    setProperty("MTKAWDLSyncWaits",syncWaits,64);
-    setProperty("MTKAWDLSyncFailures",syncFailures,64);
-    XYLog("AWDL sync request=%d enabled=%d status=0x%x waits=%llu\n",value,enabled,status,syncWaits);
-    if(expectedEpoch) {
-        if(superseded || staleEpoch) {
-            ++syncRecoveryStale; publishSyncRecovery(staleEpoch ? "stale-epoch" : "superseded-in-flight");
-        } else if(status==kIOReturnSuccess) { ++syncRecoveryCompleted; publishSyncRecovery("completed"); }
-        else publishSyncRecovery("retry-failed");
-    } else if(!stopping && blocked.blocked && status==kIOReturnNotReady) {
+    // LIFECYCLE v2: an ON refused only because the HAL is between stop and
+    // restart is accepted and finished by reconcileSyncInGate(). Returning the
+    // refusal made airportd roll back with an immediate OFF (1 ms later on
+    // hardware, 2026-11-09 22:27/22:28), which superseded the ticket, and it
+    // never asked again: AWDL stayed off until reboot. Upstream's ready gate
+    // acknowledges for the same reason. The HAL status stays visible in
+    // MTKAWDLSyncEnableStatus; a real OFF still cancels the deferred enable.
+    bool deferred=false;
+    if(!expectedEpoch && !stopping && blocked.blocked && status==kIOReturnNotReady) {
         if(syncRecovery.arm(request,blocked.epoch,awdlNow())) {
-            ++syncRecoveryArmed; publishSyncRecovery("waiting-hardware");
+            ++syncRecoveryArmed; ++syncDeferred; deferred=true;
+            publishSyncRecovery("deferred");
             timer->setTimeoutMS(100);
         } else {
             ++syncRecoveryStale; publishSyncRecovery("superseded-before-arm");
         }
     }
+    if(status!=kIOReturnSuccess && !deferred) ++syncFailures;
+    setProperty("MTKAWDLSyncEnableStatus",static_cast<uint64_t>(status),32);
+    setProperty("MTKAWDLSyncEnabled",enabled);
+    setProperty("MTKAWDLSyncTransition",deferred ? "deferred" :
+                status==kIOReturnSuccess ? (enabled ? "enabled" : "disabled") : "failed");
+    setProperty("MTKAWDLSyncRequests",syncRequests,64);
+    setProperty("MTKAWDLSyncWaits",syncWaits,64);
+    setProperty("MTKAWDLSyncFailures",syncFailures,64);
+    setProperty("MTKAWDLSyncDeferred",syncDeferred,64);
+    XYLog("AWDL sync request=%d enabled=%d status=0x%x deferred=%d waits=%llu\n",value,enabled,status,deferred,syncWaits);
+    if(expectedEpoch) {
+        if(superseded || staleEpoch) {
+            ++syncRecoveryStale; publishSyncRecovery(staleEpoch ? "stale-epoch" : "superseded-in-flight");
+        } else if(status==kIOReturnSuccess) { ++syncRecoveryCompleted; publishSyncRecovery("completed"); }
+        else publishSyncRecovery("retry-failed");
+    }
     syncOwner=NULL;
     _fCommandGate->commandWakeup(&syncOwner,false);
-    return status;
+    return deferred ? kIOReturnSuccess : status;
 }
 mbuf_t AirportMtkAwdlInterface::makeFrame(const uint8_t *data,size_t length)
 {
