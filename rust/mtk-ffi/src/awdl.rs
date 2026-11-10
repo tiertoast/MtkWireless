@@ -251,6 +251,14 @@ export! {
         }
     }
     fn mtk_awdl_multicast_ready(s: *const State, now: u64) -> bool { s.as_ref().is_some_and(|s| t::multicast_ready(s, now)) }
+    fn mtk_awdl_data_rendezvous_end(
+        s: *const State, peer: *const Peer, now: u64, limit: u64, channel: u8
+    ) -> u64 {
+        match (s.as_ref(), peer.as_ref()) {
+            (Some(s), Some(peer)) => t::data_rendezvous_end(s, peer, now, limit, channel),
+            _ => now,
+        }
+    }
     fn mtk_awdl_data_queue_lifetime_us(s: *const State, destination: *const u8) -> u32 {
         s.as_ref().map_or(0, |s| t::data_queue_lifetime_us(s, mac(destination).unwrap_or(&ZERO_MAC)))
     }

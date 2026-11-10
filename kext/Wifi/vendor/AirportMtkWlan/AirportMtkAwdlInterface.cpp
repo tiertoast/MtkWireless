@@ -3,9 +3,26 @@
 #include "AirportMtkAwdlInterface.hpp"
 #ifdef MTK_NATIVE_AWDL
 #include <IOKit/IOCommandGate.h>
+#include <AWDL/AwdlTxRendezvous.hpp>
+#include <pexpert/pexpert.h>
 #include <sys/kpi_mbuf.h>
 #include <sys/errno.h>
 #include <Airport/macOS26/IO80211Buffer.h>
+
+// T2: end-of-window guard for unicast AWDL data, in microseconds.
+// Boot-arg amtk_awdl_tx_guard_us (0..20000, 0 = Codex D1 TX-EFFICIENCY).
+static unsigned awdlTxGuardUS()
+{
+    static int value=-1;
+    if(value<0) {
+        int parsed=4000;
+        if(!PE_parse_boot_argn("amtk_awdl_tx_guard_us",&parsed,sizeof(parsed))) parsed=4000;
+        if(parsed<0) parsed=0;
+        if(parsed>20000) parsed=20000;
+        value=parsed;
+    }
+    return static_cast<unsigned>(value);
+}
 
 #define super IO80211AWDLProtocol
 OSDefineMetaClassAndStructors(AirportMtkAwdlInterface, IO80211AWDLProtocol)
@@ -968,6 +985,11 @@ void AirportMtkAwdlInterface::publishScheduler(uint64_t now)
     setProperty("MTKAWDLDataTxFailed",dataTxFailed,64);
     setProperty("MTKAWDLDataTxDeferred",dataTxDeferred,64);
     setProperty("MTKAWDLDataTxExpired",dataTxExpired,64);
+    setProperty("MTKAWDLTxRendezvousDeferred",txRendezvousDeferred,64);
+    setProperty("MTKAWDLTxRendezvousAvoided",txRendezvousAvoided,64);
+    setProperty("MTKAWDLTxRendezvousExpired",txRendezvousExpired,64);
+    setProperty("MTKAWDLTxRendezvousGuarded",txRendezvousGuarded,64);
+    setProperty("MTKAWDLTxGuardUS",static_cast<uint64_t>(awdlTxGuardUS()),32);
     setProperty("MTKAWDLUMISubmitted",umiSubmitted,64);
     setProperty("MTKAWDLUMIFailed",umiFailed,64);
     setProperty("MTKAWDLUMIExpired",umiExpired,64);
@@ -1493,9 +1515,18 @@ void AirportMtkAwdlInterface::serviceInGate()
         if(miStatus==kIOReturnSuccess) ++miSubmitted; else ++miFailed;
         miCounter=eaw; miCounterValid=true;
     }
-    unsigned pending=queueCount;
-    while(pending-- && queueCount && hal->awdlCanTransmit(channel)) {
-        mbuf_t m=queue[queueHead]; uint64_t time=queueTime[queueHead], expiry=queueDeadline[queueHead];
+    unsigned pending=queueCount, parked=0;
+    uint32_t parkedPeers=0;
+    mtkawdl::TxGrant txGrant{};
+    bool txGrantRead=false, txGrantCurrent=false;
+    auto moveEntry=[this](unsigned to,unsigned from) {
+        queue[to]=queue[from]; queueTime[to]=queueTime[from]; queueDeadline[to]=queueDeadline[from];
+    };
+    // No gate sleep during the drain. Native schedule, peer clocks and pinned
+    // AW state stay owned by the gate until DMA either accepts or rejects.
+    while(pending-- && parked<queueCount && hal->awdlCanTransmit(channel)) {
+        unsigned slot=(queueHead+parked)%kDataQueueSize;
+        mbuf_t m=queue[slot]; uint64_t time=queueTime[slot], expiry=queueDeadline[slot];
         const uint8_t *f=(const uint8_t *)mbuf_data(m);
         int peer=state.find(f+4);
         bool ready=(f[4]&1) && mtkawdl::multicastReady(state,now);
@@ -1510,13 +1541,49 @@ void AirportMtkAwdlInterface::serviceInGate()
         uint64_t &deferred=blockAck ? addbaDeferred : unicastMI ? umiDeferred : dataTxDeferred;
         uint64_t &submitted=blockAck ? addbaSubmitted : unicastMI ? umiSubmitted : dataTxSubmitted;
         uint64_t &failed=blockAck ? addbaFailed : unicastMI ? umiFailed : dataTxFailed;
-        queueHead=(queueHead+1)%kDataQueueSize; --queueCount;
-        if(now<expiry && !ready) {
+        const bool guarded=f[0]==0x08 && !(f[4]&1) && peer>=0;
+        const uint64_t packetNow=guarded ? awdlNow() : now;
+        const uint32_t peerBit=guarded ? 1u<<peer : 0;
+        mtkawdl::TxRendezvous rendezvous{};
+        if(guarded && packetNow<expiry) {
+            if(parkedPeers&peerBit) { ++parked; continue; }
+            if(!txGrantRead) {
+                txGrantRead=true;
+                txGrantCurrent=hal->awdlTxGrantSnapshot(channel,txGrant) &&
+                    txGrant.token==grant.token && txGrant.observed==grant.grantObservedAt &&
+                    txGrant.deadline==grant.deadline &&
+                    (!awTimeline.open || awTimeline.matchesSchedule(state));
+            }
+            uint64_t end=txGrantCurrent ? mtk_awdl_data_rendezvous_end(
+                &state,&state.peers[peer],packetNow,txGrant.deadline,channel) : packetNow;
+            // T2 guard: do not start a frame that cannot finish (with its
+            // ACK and the frames already in firmware) before the common
+            // window closes. Hardware 2026-11-07: TX errors 191/375 with
+            // <=10 ms left, 11/3528 with >20 ms. The DMA commit check uses
+            // the same shortened end.
+            if(end>packetNow) {
+                uint64_t guard=awdlTxGuardUS();
+                if(end-packetNow<=guard) { ++txRendezvousGuarded; end=packetNow; }
+                else end-=guard;
+            }
+            if(end<=packetNow) {
+                ++txRendezvousDeferred;
+                if(ready) { ++txRendezvousAvoided; ++deferred; }
+                parkedPeers|=peerBit; ++parked;
+                continue;
+            }
+            rendezvous={txGrant,end,expiry};
+            ready=true;
+        }
+        queueHead=mtkawdl::removeTxCandidate(queueHead,parked,kDataQueueSize,moveEntry);
+        --queueCount;
+        if(packetNow<expiry && !ready) {
             unsigned tail=(queueHead+queueCount)%kDataQueueSize; queue[tail]=m; queueTime[tail]=time; queueDeadline[tail]=expiry; ++queueCount;
             continue;
         }
-        if(now>=expiry) {
+        if(packetNow>=expiry) {
             ++expired;
+            if(guarded) ++txRendezvousExpired;
             mbuf_freem(m);
         }
         else {
@@ -1542,8 +1609,21 @@ void AirportMtkAwdlInterface::serviceInGate()
                 }
                 mbuf_freem(m); m=replacement;
             }
-            IOReturn txStatus=hal->awdlTryTransmit(&m,channel);
+            IOReturn txStatus=hal->awdlTryTransmit(&m,channel,guarded ? &rendezvous : nullptr);
             if(unicastMI) umiStatus=txStatus; else if(!blockAck) dataTxStatus=txStatus;
+            if(m && guarded && (txStatus==kIOReturnAborted || txStatus==kIOReturnNotFound)) {
+                if(txStatus==kIOReturnAborted) ++txRendezvousAvoided;
+                if(awdlNow()>=expiry) {
+                    ++expired; ++txRendezvousExpired;
+                    mbuf_freem(m);
+                    continue;
+                }
+                queueHead=mtkawdl::restoreTxCandidate(queueHead,parked,kDataQueueSize,moveEntry);
+                queue[slot]=m; queueTime[slot]=time; queueDeadline[slot]=expiry; ++queueCount;
+                ++deferred; ++txRendezvousDeferred;
+                parkedPeers|=peerBit; ++parked;
+                continue;
+            }
             if(m) {
                 // No firmware ownership on a transient failure. Keep the
                 // original payload/sequence and its bounded queue lifetime.
@@ -1554,8 +1634,8 @@ void AirportMtkAwdlInterface::serviceInGate()
                     ++deferred;
                     continue;
                 }
-                queueHead=(queueHead+kDataQueueSize-1)%kDataQueueSize;
-                queue[queueHead]=m; queueTime[queueHead]=time; queueDeadline[queueHead]=expiry; ++queueCount;
+                queueHead=mtkawdl::restoreTxCandidate(queueHead,parked,kDataQueueSize,moveEntry);
+                queue[slot]=m; queueTime[slot]=time; queueDeadline[slot]=expiry; ++queueCount;
                 ++deferred;
                 // Busy/grant/ring pressure applies to the rest of this batch.
                 break;

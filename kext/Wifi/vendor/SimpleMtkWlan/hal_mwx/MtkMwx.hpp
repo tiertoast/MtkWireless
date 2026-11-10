@@ -23,7 +23,7 @@
 
 struct mwx_softc;
 struct pci_attach_args;
-namespace mtkawdl { struct Reservation; struct SyncStop; enum class SyncRecoveryReadiness; }
+namespace mtkawdl { struct Reservation; struct SyncStop; enum class SyncRecoveryReadiness; struct TxGrant; struct TxRendezvous; }
 
 class MtkMwx : public MtkHalService, MtkDriverInfo, MtkDriverController {
     OSDeclareDefaultStructors(MtkMwx)
@@ -84,7 +84,9 @@ public:
     IOReturn awdlTransmit(mbuf_t frame, uint8_t channel);
     // Queue API: leave *frame owned by the caller on a transient failure;
     // clear it after successful submission or permanent rejection.
-    IOReturn awdlTryTransmit(mbuf_t *frame, uint8_t channel);
+    bool awdlTxGrantSnapshot(uint8_t channel,mtkawdl::TxGrant &grant);
+    // kIOReturnAborted with a rendezvous means DMA did not take ownership.
+    IOReturn awdlTryTransmit(mbuf_t *frame, uint8_t channel,const mtkawdl::TxRendezvous *rendezvous=nullptr);
     bool awdlChannelAllowed(uint8_t channel);
     // MtkWireless: the AP's channel while associated, else 0. Leaving it
     // unannounced gets us disassociated; see awdlInfraSleep.

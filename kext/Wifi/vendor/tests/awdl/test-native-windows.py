@@ -19,6 +19,7 @@ code = r'''
 #include <functional>
 #include <vector>
 #include <AWDL/AwdlTimeline.hpp>
+#include <AWDL/AwdlTxRendezvous.hpp>
 using IOReturn=unsigned;
 constexpr unsigned APPLE80211_VERSION=1,kIOReturnSuccess=0,kIOReturnNotReady=1,kIOReturnNoMemory=2,kIOReturnBadArgument=3,kIOReturnUnsupported=4,kIOReturnNotFound=5,
  APPLE80211_C_FLAG_20MHZ=1,APPLE80211_C_FLAG_2GHZ=8,APPLE80211_C_FLAG_5GHZ=16,
@@ -36,6 +37,7 @@ struct Timer{unsigned us=0;void setTimeoutMS(unsigned n){us=n*1000;}
 struct Packet{std::vector<uint8_t> bytes;};using mbuf_t=Packet*;
 void mbuf_freem(mbuf_t m){delete m;}void*mbuf_data(mbuf_t m){return m->bytes.data();}
  size_t mbuf_pkthdr_len(mbuf_t m){return m->bytes.size();}
+constexpr unsigned kIOReturnAborted=99;
 struct Hal{
  bool on=true,thirdChannel=false;mtkawdl::Reservation grant{};unsigned reserves=0,aborts=0,transmits=0;
  bool homeChannel8=false;
@@ -43,6 +45,10 @@ struct Hal{
  uint32_t duration=0;std::function<void()> onReserve,onPrepare;std::function<void(bool)> onPeer;
  IOReturn awdlPrepareChannel(unsigned c){++prepares;preparedChannel=c;if(onPrepare)onPrepare();return 0;}bool awdlIsEnabled(){return on;}bool awdlChannelAllowed(unsigned c){return c==6||c==44||(thirdChannel&&c==149)||(homeChannel8&&c==8);} uint8_t infraChannel=0;uint8_t awdlInfraChannel(){return infraChannel;}uint8_t awdlOnlyChannel(){return infraChannel;}void awdlInfraSleep(unsigned){}void awdlInfraWakeIfIdle(){}bool awdlChannelReachable(unsigned c){return awdlChannelAllowed(c)&&(!infraChannel||c==infraChannel);}
  bool awdlGrantSnapshot(mtkawdl::Reservation &out){out=grant;return on;}
+ bool awdlTxGrantSnapshot(uint8_t channel,mtkawdl::TxGrant &out){
+  if(!on||!grant.canTransmit(channel,clockUS))return false;
+  out={1,grant.grantObservedAt,grant.deadline,1,grant.token,grant.channel};return true;
+ }
  bool awdlCanTransmit(unsigned c){return grant.canTransmit(c,clockUS);}
  void awdlAbort(){++aborts;grant.cancel();}
  IOReturn awdlReserve(unsigned c,unsigned ms){++reserves;requested=c;duration=ms;
@@ -52,7 +58,11 @@ struct Hal{
  IOReturn awdlRxBlockAck(const uint8_t*,uint8_t,uint16_t,uint16_t,bool enable){return enable?kIOReturnUnsupported:0;}
  bool dense=false;bool awdlDensePresenceAllowed(uint8_t){return dense;}
  IOReturn awdlTransmit(mbuf_t m,unsigned){++transmits;delete m;return 0;}
- IOReturn awdlTryTransmit(mbuf_t *m,unsigned c){auto result=awdlTransmit(*m,c);*m=nullptr;return result;}
+ IOReturn awdlTryTransmit(mbuf_t *m,unsigned c,const mtkawdl::TxRendezvous *r=nullptr){
+  mtkawdl::TxGrant live{};
+  if(r&&!r->valid(live,awdlTxGrantSnapshot(c,live),clockUS))return kIOReturnAborted;
+  auto result=awdlTransmit(*m,c);*m=nullptr;return result;
+ }
  void give(uint8_t token,uint8_t c,uint32_t ms){grant.request(token,c,clockUS);
   assert(grant.grant(token,c,ms,clockUS));}
 };
@@ -68,6 +78,8 @@ struct AirportMtkAwdlInterface{
  NativePeerSample nativePeerSamples[16]{};uint64_t advertisersRequests=0;
  uint8_t requestedChannel=0,grantedChannel=0;uint64_t requestDeadline=0;
  unsigned reserveDuration=0;IOReturn reserveStatus=0,actionStatus=0,miStatus=0;
+ uint64_t txRendezvousDeferred=0,txRendezvousAvoided=0,txRendezvousExpired=0,txRendezvousGuarded=0;
+ static unsigned awdlTxGuardUS(){return 0;}
  uint64_t dataTxSubmitted=0,dataTxFailed=0,dataTxExpired=0,dataTxDeferred=0;IOReturn dataTxStatus=0;
  uint64_t serviceTicks=0,reserveAttempts=0,grantObservations=0,awStartNotifications=0,
  nextAction=0,actionSubmitted=0,actionFailed=0,miStart=0,miSubmitted=0,miFailed=0;

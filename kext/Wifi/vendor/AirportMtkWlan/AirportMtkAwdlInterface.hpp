@@ -230,6 +230,8 @@ private:
     void recordInvalidDataRx(const uint8_t *,size_t,uint64_t,uint8_t,int8_t,bool=false);
     IOReturn dataTxStatus = kIOReturnNotReady;
     uint64_t serviceTicks = 0, reserveAttempts = 0, grantObservations = 0, awStartNotifications = 0;
+    uint64_t txRendezvousDeferred=0, txRendezvousAvoided=0, txRendezvousExpired=0;
+    uint64_t txRendezvousGuarded=0;  // T2: refused inside the end-of-window guard
     uint64_t reserveWaitUS = 0, reserveMaxWaitUS = 0, reserveInvalidations = 0;
     uint32_t reserveInvalidReason = 0;
     uint32_t reserveLeadUS = mtkawdl::rocLeadUs;

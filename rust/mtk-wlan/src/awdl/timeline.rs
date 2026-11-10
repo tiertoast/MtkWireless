@@ -3,7 +3,7 @@
 //! coordinates, never timestamps.
 
 use super::protocol::{
-    AW_US, MAX_ROC_MS, ROC_RESPONSE_TIMEOUT_US, Reservation, SLOTS, Sequence, State,
+    AW_US, MAX_ROC_MS, PEER_LIFETIME_US, Peer, ROC_RESPONSE_TIMEOUT_US, Reservation, SLOTS, Sequence, State,
     valid_presence, valid_sequence,
 };
 
@@ -34,6 +34,48 @@ pub fn current_window(s: &State, now: u64) -> Option<Window> {
         channel: s.channel(now),
         presence: s.presence,
     })
+}
+
+// Exclusive end of a continuous same-channel run, clipped to limit. The
+// sequence uses a wrapping 16-bit AW counter, which can reset a partial cycle.
+fn channel_run_end(
+    sequence: &Sequence, epoch: u64, base: u16, now: u64, limit: u64, channel: u8,
+) -> u64 {
+    let channels = &sequence.channels[..sequence.count as usize];
+    if channels.iter().all(|&entry| entry == channel) {
+        return limit;
+    }
+    let step = sequence.step as u64 + 1;
+    let aw_us = AW_US as u64;
+    let mut at = now;
+    loop {
+        let elapsed = at - epoch;
+        let counter = base.wrapping_add((elapsed / aw_us) as u16) as u64;
+        if channels[(counter / step) as usize % channels.len()] != channel {
+            return at;
+        }
+        let edge = at.saturating_add((step - counter % step) * aw_us - elapsed % aw_us);
+        if edge >= limit {
+            return limit;
+        }
+        at = edge;
+    }
+}
+
+/// Exclusive end of the overlap of the advertised local and peer schedules.
+/// The caller holds the native gate and supplies a cap from the live ROC.
+pub fn data_rendezvous_end(s: &State, peer: &Peer, now: u64, limit: u64, channel: u8) -> u64 {
+    if channel == 0 || now >= limit || now < s.epoch || s.channel(now) != channel
+        || !valid_presence(s.presence as u32) || peer.channel(now) != channel
+    {
+        return now;
+    }
+    let local_end = channel_run_end(&s.sequence, s.epoch, s.base_counter, now, limit, channel);
+    let peer_valid_until = peer.seen.saturating_add(PEER_LIFETIME_US + 1);
+    channel_run_end(
+        &peer.advertisement.sequence, peer.epoch, peer.base_counter, now,
+        local_end.min(peer_valid_until), channel,
+    )
 }
 
 /// AWDL multicast rendezvous uses EAW slots 0 and 10 of the 16-slot cycle.
@@ -476,6 +518,53 @@ impl Timeline {
 #[cfg(test)]
 mod plan_tests {
     use super::*;
+
+    #[test]
+    fn data_rendezvous_spans_equal_slots_and_stops_at_the_earlier_clock() {
+        let mut s = state();
+        let aw = AW_US as u64;
+        s.epoch = 10 * aw;
+        s.base_counter = 0;
+        s.sequence.count = 4;
+        s.sequence.step = 3;
+        s.sequence.channels[..4].copy_from_slice(&[149, 149, 6, 149]);
+        let mut p = Peer { used: true, seen: s.epoch, epoch: s.epoch + aw, ..Peer::default() };
+        p.advertisement.sequence = s.sequence;
+        let now = s.epoch + 3 * aw;
+        assert_eq!(data_rendezvous_end(&s, &p, now, now + 20 * aw, 149), s.epoch + 8 * aw);
+        p.advertisement.sequence.channels[1] = 6;
+        assert_eq!(data_rendezvous_end(&s, &p, now, now + 20 * aw, 149), s.epoch + 5 * aw);
+        assert_eq!(data_rendezvous_end(&s, &p, now, now + aw, 149), now + aw);
+        let edge = s.epoch + 5 * aw;
+        assert_eq!(data_rendezvous_end(&s, &p, edge, edge + aw, 149), edge);
+        assert_eq!(data_rendezvous_end(&s, &p, now, now + aw, 6), now);
+        assert_eq!(data_rendezvous_end(&s, &p, s.epoch, now, 149), s.epoch);
+        p.advertisement.sequence.count = 0;
+        assert_eq!(data_rendezvous_end(&s, &p, now, now + aw, 149), now);
+    }
+
+    #[test]
+    fn data_rendezvous_honors_wrap_peer_expiry_and_clock_validity() {
+        let mut s = state();
+        let aw = AW_US as u64;
+        s.epoch = 10 * aw;
+        s.base_counter = u16::MAX;
+        s.sequence.count = 3;
+        s.sequence.step = 0;
+        s.sequence.channels[..3].copy_from_slice(&[149, 6, 149]);
+        let mut p = Peer { used: true, seen: s.epoch, epoch: s.epoch,
+                           base_counter: u16::MAX, ..Peer::default() };
+        p.advertisement.sequence = s.sequence;
+        // AW 65535 and 0 use the same slot here, even with a partial cycle.
+        assert_eq!(data_rendezvous_end(&s, &p, s.epoch, s.epoch + 8 * aw, 149), s.epoch + 2 * aw);
+        s.sequence.channels[..3].fill(149);
+        p.advertisement.sequence = s.sequence;
+        let last = p.seen + PEER_LIFETIME_US;
+        assert_eq!(data_rendezvous_end(&s, &p, last, last + aw, 149), last + 1);
+        assert_eq!(data_rendezvous_end(&s, &p, last + 1, last + aw, 149), last + 1);
+        s.sync_role = 2;
+        assert_eq!(data_rendezvous_end(&s, &p, s.epoch, s.epoch + aw, 149), s.epoch);
+    }
 
     /// Two-slot schedule alternating 149 and 6, one AW per slot.
     fn state() -> State {

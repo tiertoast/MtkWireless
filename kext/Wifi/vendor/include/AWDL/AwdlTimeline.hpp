@@ -8,6 +8,8 @@ namespace mtkawdl { struct Window; struct RocLeadTiming; struct RocChannelTiming
 extern "C" {
 bool mtk_awdl_current_window(const mtkawdl::State *s, uint64_t now, mtkawdl::Window *out);
 bool mtk_awdl_multicast_ready(const mtkawdl::State *s, uint64_t now);
+uint64_t mtk_awdl_data_rendezvous_end(const mtkawdl::State *s,const mtkawdl::Peer *peer,
+                                     uint64_t now,uint64_t limit,uint8_t channel);
 uint32_t mtk_awdl_data_queue_lifetime_us(const mtkawdl::State *s, const uint8_t *destination);
 uint32_t mtk_awdl_roc_lead_observe(mtkawdl::RocLeadTiming *l, uint32_t responseUs, uint64_t preparationUs);
 uint32_t mtk_awdl_roc_channel_lead(const mtkawdl::RocChannelTiming *c, uint8_t channel, uint32_t fallback);

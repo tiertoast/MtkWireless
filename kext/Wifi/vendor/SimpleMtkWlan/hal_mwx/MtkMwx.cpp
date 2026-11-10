@@ -32,6 +32,7 @@
 #include "mtk_wlan.h"
 #include <AWDL/AwdlProtocol.hpp>
 #include <AWDL/AwdlSyncRecovery.hpp>
+#include <AWDL/AwdlTxRendezvous.hpp>
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -445,6 +446,7 @@ struct mwx_softc {
     uint64_t sc_awdl_tx_copy_failed, sc_awdl_tx_dma_failed;
     uint64_t sc_awdl_rx_ba_started, sc_awdl_rx_ba_stopped, sc_awdl_rx_ba_failed;
     mtkawdl::TxStatusCounters sc_awdl_tx_status;
+    uint64_t sc_awdl_tx_rendezvous_rejected;
     int sc_awdl_tx_errno;
     void *sc_awdl_context;
     MtkMwx::AwdlReceive sc_awdl_receive;
@@ -813,7 +815,8 @@ void	mwx_delete_key(struct ieee80211com *, struct ieee80211_node *,
 void	mwx_setkey_task(void *);
 
 int	mwx_tx(struct mwx_softc *, struct mbuf *, struct ieee80211_node *,
-    unsigned = MTK_JOIN_TX_NONE);
+    unsigned = MTK_JOIN_TX_NONE,const mtkawdl::TxRendezvous * = nullptr);
+static uint64_t mwx_awdl_now();
 int	mwx_tx_full(struct mwx_softc *);
 void	mwx_tx_resume(struct mwx_softc *);
 void	mwx_rx(struct mwx_softc *, struct mbuf *, struct mbuf_list *);
@@ -846,7 +849,7 @@ void	mwx_dma_free(struct mwx_softc *);
 int	mwx_dma_tx_enqueue(struct mwx_softc *, struct mwx_queue *,
 	    struct mbuf *);
 int	mwx_dma_txwi_enqueue(struct mwx_softc *, struct mwx_queue *,
-	    struct mwx_txwi *);
+	    struct mwx_txwi *,const mtkawdl::TxRendezvous *);
 void	mwx_dma_tx_cleanup(struct mwx_softc *, struct mwx_queue *);
 void	mwx_dma_tx_done(struct mwx_softc *);
 void	mwx_dma_rx_process(struct mwx_softc *, struct mbuf_list *);
@@ -2073,7 +2076,7 @@ mwx_eapol_keyinfo(struct mbuf *m, uint16_t *keyinfo)
 
 int
 mwx_tx(struct mwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
-    unsigned join_kind)
+    unsigned join_kind,const mtkawdl::TxRendezvous *rendezvous)
 {
 	struct mwx_node *mn = (struct mwx_node *)ni;
 	struct mwx_txwi *mt;
@@ -2163,9 +2166,9 @@ mwx_tx(struct mwx_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	mt->mt_join_kind = join_kind;
 	mt->mt_join_attempt = sc->sc_ic.ic_join_diag.Active ?
 	    sc->sc_ic.ic_join_diag.Attempt : 0;
-	rv = mwx_dma_txwi_enqueue(sc, &sc->sc_txq, mt);
+	rv = mwx_dma_txwi_enqueue(sc, &sc->sc_txq, mt,rendezvous);
 	if (rv != 0) {
-		sc->sc_tx_ring_full++;
+		if(rv!=ESTALE) sc->sc_tx_ring_full++;
 		mwx_txwi_put(sc, mt);
 	}
 	return rv;
@@ -3593,9 +3596,25 @@ mwx_dma_tx_enqueue_locked(struct mwx_softc *sc, struct mwx_queue *q,
 	return 0;
 }
 
+// The caller holds sc_awdl_lock for both identity and readiness snapshots.
+static mtkawdl::TxGrant mwx_awdl_tx_grant(const mwx_softc *sc)
+{
+    const auto &roc=sc->sc_awdl_roc;
+    return {sc->sc_awdl_roc_grants,roc.grantObservedAt,roc.deadline,
+            sc->sc_awdl_epoch,roc.token,roc.channel};
+}
+
+static bool mwx_awdl_tx_usable(const mwx_softc *sc,uint8_t channel,uint64_t now)
+{
+    return sc->sc_awdl_enabled && !sc->sc_awdl_stopping && !sc->sc_resetting &&
+        !sc->sc_detaching && (sc->sc_ic.ic_if.if_flags & IFF_RUNNING) &&
+        !(sc->sc_flags & (MWX_FLAG_SCANNING | MWX_FLAG_BGSCAN)) &&
+        sc->sc_awdl_roc.canTransmit(channel,now);
+}
+
 static int
 mwx_dma_txwi_enqueue_locked(struct mwx_softc *sc, struct mwx_queue *q,
-    struct mwx_txwi *mt)
+    struct mwx_txwi *mt,const mtkawdl::TxRendezvous *rendezvous)
 {
 	struct mwx_queue_data *md;
 	struct mwx_desc *desc;
@@ -3641,9 +3660,23 @@ mwx_dma_txwi_enqueue_locked(struct mwx_softc *sc, struct mwx_queue *q,
 	bus_dmamap_sync(sc->sc_dmat, q->mq_map, 0, q->mq_map->dm_mapsize,
 	    BUS_DMASYNC_POSTWRITE);
 
+    if(rendezvous) {
+        // The descriptor is staged but invisible to firmware until the
+        // producer is published. Keep the ROC identity pinned through MMIO.
+        IOLockLock(sc->sc_awdl_lock);
+        const uint64_t now=mwx_awdl_now();
+        if(!rendezvous->valid(mwx_awdl_tx_grant(sc),
+            mwx_awdl_tx_usable(sc,rendezvous->grant.channel,now),now)) {
+            ++sc->sc_awdl_tx_rendezvous_rejected;
+            IOLockUnlock(sc->sc_awdl_lock);
+            md->md_txwi=nullptr;
+            return ESTALE;
+        }
+    }
 	q->mq_prod = idx;
 
 	mwx_write(sc, q->mq_regbase + MT_DMA_CPU_IDX, q->mq_prod);
+    if(rendezvous) IOLockUnlock(sc->sc_awdl_lock);
 
 	return 0;
 }
@@ -3661,12 +3694,12 @@ mwx_dma_tx_enqueue(struct mwx_softc *sc, struct mwx_queue *q, struct mbuf *m)
 
 int
 mwx_dma_txwi_enqueue(struct mwx_softc *sc, struct mwx_queue *q,
-    struct mwx_txwi *mt)
+    struct mwx_txwi *mt,const mtkawdl::TxRendezvous *rendezvous)
 {
 	int rv;
 
 	IOLockLock(mwx_txq_lock);
-	rv = mwx_dma_txwi_enqueue_locked(sc, q, mt);
+	rv = mwx_dma_txwi_enqueue_locked(sc, q, mt,rendezvous);
 	IOLockUnlock(mwx_txq_lock);
 	return rv;
 }
@@ -10016,6 +10049,16 @@ bool MtkMwx::awdlCanTransmit(uint8_t channel)
     return ready;
 }
 
+bool MtkMwx::awdlTxGrantSnapshot(uint8_t channel,mtkawdl::TxGrant &grant)
+{
+    if(!com || !com->sc_awdl_lock) return false;
+    IOLockLock(com->sc_awdl_lock);
+    bool ready=mwx_awdl_tx_usable(com,channel,mwx_awdl_now());
+    if(ready) grant=mwx_awdl_tx_grant(com);
+    IOLockUnlock(com->sc_awdl_lock);
+    return ready;
+}
+
 bool MtkMwx::awdlGrantSnapshot(mtkawdl::Reservation &grant)
 {
     if(!com || !com->sc_awdl_lock) return false;
@@ -10043,6 +10086,7 @@ void MtkMwx::awdlPublishDiagnostics()
     uint64_t events=com->sc_awdl_roc_events, grants=com->sc_awdl_roc_grants,
              rejected=com->sc_awdl_roc_rejected;
     bool pending=com->sc_awdl_roc.pending;
+    uint64_t rendezvousRejected=com->sc_awdl_tx_rendezvous_rejected;
     mtkawdl::Reservation radio=com->sc_awdl_roc;
     uint64_t delay=com->sc_awdl_roc_grant_delay_us, maxDelay=com->sc_awdl_roc_max_grant_delay_us;
     uint64_t commandResults=com->sc_awdl_roc_command_results, commandFailed=com->sc_awdl_roc_command_failed,
@@ -10067,6 +10111,7 @@ void MtkMwx::awdlPublishDiagnostics()
         radio.pending ? (observed<radio.deadline ? "waiting-grant" : "response-expired") :
         radio.granted ? (observed<radio.deadline ? "granted" : "grant-expired") : "idle";
     mwxController()->setProperty("MTKAWDLROCState",state);
+    mwxController()->setProperty("MTKAWDLTxRendezvousDoorbellRejected",rendezvousRejected,64);
     mwxController()->setProperty("MTKAWDLInfraPowerSave",com->sc_awdl_infra_ps);
     mwxController()->setProperty("MTKAWDLInfraPSSleeps",com->sc_awdl_infra_ps_sleeps,64);
     mwxController()->setProperty("MTKAWDLInfraPSWakes",com->sc_awdl_infra_ps_wakes,64);
@@ -10189,7 +10234,7 @@ IOReturn MtkMwx::awdlTransmit(mbuf_t frame,uint8_t channel)
     return status;
 }
 
-IOReturn MtkMwx::awdlTryTransmit(mbuf_t *packet,uint8_t channel)
+IOReturn MtkMwx::awdlTryTransmit(mbuf_t *packet,uint8_t channel,const mtkawdl::TxRendezvous *rendezvous)
 {
     if(!packet || !*packet) return kIOReturnBadArgument;
     mbuf_t frame=*packet;
@@ -10250,10 +10295,11 @@ IOReturn MtkMwx::awdlTryTransmit(mbuf_t *packet,uint8_t channel)
     com->sc_awdl_native_tx_frame=nativeMI ? attempt : NULL;
     com->sc_awdl_native_tx_pid=nativePid;
     com->sc_awdl_native_tx_override=nativeMI;
-    int rv=mwx_tx(com,attempt,node);
+    int rv=mwx_tx(com,attempt,node,MTK_JOIN_TX_NONE,rendezvous);
     com->sc_awdl_native_tx_override=false;
     com->sc_awdl_native_tx_frame=NULL;
     com->sc_awdl_tx_errno=rv;
+    if(rendezvous && rv==ESTALE) return kIOReturnAborted;
     if(rv) {
         if (nativeSlot>=0 && com->sc_awdl_lock) {
             IOLockLock(com->sc_awdl_lock); com->sc_awdl_native_tx[nativeSlot].used=false;
