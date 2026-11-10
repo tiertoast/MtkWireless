@@ -257,6 +257,8 @@ public:
     UInt32 currentStatus;
     bool disassocIsVoluntary;
     char geo_location_cc[3];
+    char reported_cc[3] = {0, 0, 0};  // L6 diagnostics: last effective country code
+    int reported_cc_source = 0;
     
     //pm
     thread_call_t powerOnThreadCall;
