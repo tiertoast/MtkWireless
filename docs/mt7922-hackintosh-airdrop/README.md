@@ -25,6 +25,7 @@ All builds start from Release 1.0.12 (`3bb3ced`). `Bluetooth` stays at the same 
 | L4 | `61c5f40` | Structural TLV4 trailer rule (any 2-byte tail on the exact `[15,1,0,3,ff,ff]` + 16×2 shape) and rate-ladder thresholds 16/32/64. |
 | L5 | `0416341` | Codex TX-EFFICIENCY (fresh rendezvous per frame, commit under the grant) plus a 4 ms end-of-window guard (`amtk_awdl_tx_guard_us`, 0–20000). |
 | L6 | `99c0cfb` | **Country and locale**. Firmware `"00"` falls back to the airportd geolocation. The locale is ETSI for EU/EEA, CH and GB, and FCC otherwise, as before. |
+| L7 | `2d7a531` | **Country from the AP's 802.11d Country element**: the boot-arg is no longer needed. |
 
 The L4 ideas also reached upstream independently through PR #5 (`3793ade`, `302093a`), which shipped in 1.0.13.
 
@@ -75,6 +76,13 @@ Throughput varies a lot from run to run. One or two runs per cell, so treat the 
 
 - **L6 code path (CONFIRMED).** L6 reports `MTKWiFiCountryCode=IT`, `MTKWiFiCountrySource=boot-arg` and `MTKWiFiLocale=2` (ETSI).
 - **Geolocation fallback (TO VERIFY).** On this machine airportd never called `setCOUNTRY_CODE` (`MTKWiFiCountryGeo` stayed absent), so the fallback could not be exercised and the boot-arg is still needed here. The cause is unknown: Location Services, 802.11d from the AP, or the Skywalk path.
+
+### 4b. Why the boot-arg was needed, and L7 (CONFIRMED)
+
+- **airportd never sends the country.** It counts the country in the APs' Country elements (*"Currently highest country IT, count 7"*) and passes it to countryd, but never calls `setCOUNTRY_CODE`.
+- **IO80211 logs *"Dynamic country code not supported on this device"*.** This depends on bit 7 of capability bytes 5 or 8 in `IO80211AWDLPeerManager::configure`, 25G332.
+- **L7 reads the Country element in the driver**, as Broadcom firmware does (`EnabledAutoCountry`). Without `amtk_cc` it reports `MTKWiFiCountrySource = 802.11d-ap` (IT:12) and locale ETSI. The kernel logs `country code IT` / *"Disallowing Channel 149"*, and AWDL runs 44, 44, 6, 44.
+- **AirDrop without the boot-arg** (11 Nov): iPhone → Mac 2.95 MB/s, Mac → iPhone 0.34 MB/s. That is the same as with `amtk_cc=IT`.
 
 ### 5. Still open
 
